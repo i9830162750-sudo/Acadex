@@ -1,23 +1,48 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+require("dotenv").config({ path: ".env.local" });
 
-// Render's disk persists under /data if you attach a persistent disk.
-// Falls back to a local file for dev.
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'exams.db');
+const { Pool } = require("pg");
 
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS exams (
-    id                TEXT PRIMARY KEY,
-    title             TEXT NOT NULL,
-    type              TEXT NOT NULL DEFAULT 'pdf',   -- 'pdf' | 'template' (template arrives in phase 4)
-    pdf_data_url      TEXT,                          -- base64 data URL, phase 2 scope: pdf only
-    student_password  TEXT NOT NULL,
-    duration_ms       INTEGER NOT NULL,
-    created_at        INTEGER NOT NULL
-  );
-`);
+async function initDatabase() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS exams (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'pdf',
+      pdf_data_url TEXT,
+      questions_json JSONB,
+      student_password TEXT NOT NULL,
+      duration_ms BIGINT NOT NULL,
+      created_at BIGINT NOT NULL
+    );
+  `);
 
-module.exports = db;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS exam_sessions (
+      token TEXT PRIMARY KEY,
+      exam_id TEXT NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+      started_at BIGINT NOT NULL,
+      end_at BIGINT NOT NULL,
+      created_at BIGINT NOT NULL,
+      finished_at BIGINT
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_exam_sessions_exam
+    ON exam_sessions(exam_id);
+  `);
+
+  console.log("✅ Neon database ready.");
+}
+
+module.exports = {
+  pool,
+  initDatabase
+};
