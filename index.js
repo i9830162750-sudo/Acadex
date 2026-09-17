@@ -6,8 +6,7 @@ require('dotenv').config( {
 });
 const {
   Pool
-}
-= require('pg');
+}= require('pg');
 const pool = new Pool( {
   connectionString: process.env.DATABASE_URL, 
   ssl: {
@@ -109,7 +108,7 @@ app.post('/exam/create', async(req, res) => {
       }
     }
     const examId='exam_'+crypto.randomBytes(12).toString('hex');
-    await pool.query(`INSERT INTO exams(id,title,type,pdf_data_url,questions_json,student_password,duration_ms,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,[examId,title,type,type==='pdf'?pdfDataUrl:null,type==='template'?questions:null,studentPassword,durationMs,Date.now()]);
+    await pool.query(`INSERT INTO exams(id,title,type,pdf_data_url,questions_json,student_password,duration_ms,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,[examId,title,type,type==='pdf'?pdfDataUrl:null,type==='template'?JSON.stringify(questions):null,studentPassword,durationMs,Date.now()]);
     const baseUrl=process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
     res.json({examId,url:`${baseUrl}/exam/${examId}`});
   }catch(error){ console.error('Create exam error:', error); res.status(500).json({error:'Failed to create exam'}); }
@@ -152,7 +151,6 @@ app.post('/api/exam/:id/session', async(req, res) => {
     if(studentId.length>100) return res.status(400).json({error:'Student ID is too long.'});
     if(studentName.length>150) return res.status(400).json({error:'Student name is too long.'});
 
-    // DEVICE FIRST: one device can only ever have one attempt for this exam.
     const d=await pool.query(`SELECT token,student_id,student_name,device_id,started_at,end_at,finished_at FROM exam_sessions WHERE exam_id=$1 AND device_id=$2 ORDER BY created_at DESC LIMIT 1`,[exam.id,deviceId]);
     const ds=d.rows[0];
     if(ds){
@@ -164,11 +162,9 @@ app.post('/api/exam/:id/session', async(req, res) => {
       if(ds.student_id === studentId){
         return res.status(409).json({error:'This device has already used this exam.'});
       }
-
       return res.status(409).json({error:'This device has already started this exam with another student.'});
     }
 
-    // STUDENT SECOND: a student can only have one attempt for this exam.
     const st=await pool.query(`SELECT token,student_id,student_name,device_id,started_at,end_at,finished_at FROM exam_sessions WHERE exam_id=$1 AND LOWER(student_id)=LOWER($2) ORDER BY created_at DESC LIMIT 1`,[exam.id,studentId]);
     const ss=st.rows[0];
     if(ss) return res.status(409).json({error:'This student has already used this exam.'});
@@ -230,7 +226,7 @@ app.post('/api/exam/:id/finish', async(req, res) => {
     const graded=gradeExam(exam, answers);
     const submittedAt=Date.now();
     const submissionId='sub_'+crypto.randomBytes(12).toString('hex');
-    await pool.query(`INSERT INTO exam_submissions(id,exam_id,session_token,student_id,student_name,answers_json,results_json,score,total,percentage,submitted_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[submissionId,exam.id,token,session.student_id,session.student_name,answers,graded.results,graded.score,graded.total,graded.percentage,submittedAt]);
+    await pool.query(`INSERT INTO exam_submissions(id,exam_id,session_token,student_id,student_name,answers_json,results_json,score,total,percentage,submitted_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[submissionId,exam.id,token,session.student_id,session.student_name,JSON.stringify(answers),JSON.stringify(graded.results),graded.score,graded.total,graded.percentage,submittedAt]);
     await pool.query(`UPDATE exam_sessions SET finished_at=$1 WHERE token=$2`,[submittedAt,token]);
     res.json({submissionId, ...graded, answers, submittedAt});
   }catch(error){console.error('Finish exam error:', error);res.status(500).json({error:'Failed to submit exam'});}
@@ -249,478 +245,35 @@ app.get('/exam/:id', async(req, res) => {
   const safeId=JSON.stringify(exam.id), safeTitle=JSON.stringify(exam.title);
   res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(exam.title)}</title>
 <style>
-*{box-sizing:border-box}html, body{margin:0;min-height:100%;font-family:system-ui, -apple-system, "Segoe UI", sans-serif;background:#0d0c0b;color:#f0ece4}.hidden{display:none!important}
-#portal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0a0908;padding:24px}.card{width:min(450px, 100%);padding:34px 30px;background:#181614;border:1px solid #ffffff18;border-radius:20px;text-align:center;box-shadow:0 24px 64px #0008}.card h1{margin:0 0 8px}.card p{color:#aaa;line-height:1.5}.card input{width:100%;padding:13px;margin:7px 0;border:1px solid #ffffff22;border-radius:10px;background:#0e0d0c;color:#fff;font-size:16px}.card button, .finish{border:0;border-radius:10px;padding:13px 18px;font-size:16px;font-weight:700;cursor:pointer;background:#f0ece4;color:#111}.card button{width:100%;margin-top:10px}.err{color:#ff7b7b;min-height:22px;margin-top:10px}
-#app{display:none;min-height:100vh;background:#f2f1ef;color:#171615;padding:24px}.top{max-width:900px;margin:0 auto 18px;display:flex;align-items:center;justify-content:space-between;gap:16px}.top h1{margin:0;font-size:24px}.timer{font-weight:800;background:#171615;color:#fff;padding:10px 14px;border-radius:10px}.paper{max-width:900px;margin:0 auto;background:#fff;color:#181716;padding:42px 52px;border-radius:5px;box-shadow:0 10px 35px #0001}.paper-title{text-align:center;font-size:25px;font-weight:800;margin-bottom:34px}.q{margin:0 0 28px;padding-bottom:22px;border-bottom:1px solid #eee}.q-num{font-weight:700;font-size:17px;line-height:1.5;margin-bottom:12px}.answer-option{display:flex;align-items:center;gap:12px;padding:13px 15px;margin:8px 0;border:1px solid #ddd;border-radius:10px;cursor:pointer;transition:.15s ease;background:#fff}.answer-option:hover{background:#f5f5f5}.answer-option input{width:18px;height:18px;cursor:pointer;flex:none}.answer-option span{cursor:pointer;flex:1}.review-head{text-align:center;border-bottom:1px solid #eee;padding-bottom:28px;margin-bottom:28px}.score{font-size:42px;font-weight:900}.pct{font-size:18px;color:#666}.review-item{padding:20px 0;border-bottom:1px solid #eee}.status{font-weight:800;margin-bottom:8px}.correct{color:#137333}.wrong{color:#b3261e}.unanswered{color:#666}.review-label{font-weight:700}.review-answer{margin:5px 0 10px;color:#444}
-@media(max-width:650px){#app{padding:12px}.paper{padding:26px 18px}.top h1{font-size:18px}.score{font-size:34px}}
+*{box-sizing:border-box}html,body{margin:0;padding:0;background:#0d0d0d;color:#fff;font-family:Arial,sans-serif}body{min-height:100vh}.top{height:76px;border-bottom:1px solid #262626;display:flex;align-items:center;justify-content:space-between;padding:0 28px}.title{font-size:20px;font-weight:700}.timer{display:flex;gap:12px;align-items:center}.timer span{color:#aaa;font-size:12px;letter-spacing:1.5px}.clock{font-size:24px;font-weight:700;background:#191919;border:1px solid #303030;border-radius:10px;padding:14px 18px;min-width:180px;text-align:center}.wrap{max-width:980px;margin:32px auto;padding:0 20px}.card{background:#151515;border:1px solid #2a2a2a;border-radius:16px;padding:28px}.hidden{display:none!important}label{display:block;color:#aaa;font-size:13px;margin:0 0 7px}input{width:100%;padding:13px 14px;border-radius:10px;border:1px solid #383838;background:#101010;color:#fff;font-size:15px;outline:none}input:focus{border-color:#777}.field{margin-bottom:16px}button{border:0;border-radius:10px;padding:13px 18px;background:#fff;color:#111;font-weight:700;cursor:pointer}button.secondary{background:#262626;color:#fff;border:1px solid #3b3b3b}.error{margin-top:12px;color:#ff8585}.paper{background:#faf8f2;color:#111;max-width:760px;margin:0 auto;padding:55px 65px;box-shadow:0 10px 35px rgba(0,0,0,.35)}.paper h1{margin:0 0 8px;font-size:34px}.meta{color:#555;margin-bottom:24px}.rule{height:2px;background:#222;margin:18px 0 30px}.q{margin:0 0 30px}.qtext{font-size:18px;line-height:1.5;margin-bottom:12px}.qnum{font-weight:700;margin-right:10px}.options{display:grid;gap:9px;margin-left:34px}.opt{display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-radius:7px}.opt input{width:auto;margin-top:3px}.review{margin-top:24px}.review-row{padding:14px 0;border-bottom:1px solid #ddd}.correct{color:#177245}.wrong{color:#b42318}.score{font-size:30px;font-weight:700;margin:10px 0}.small{color:#666;font-size:13px}.loader{padding:30px;text-align:center;color:#aaa}
 </style></head><body>
-<div id="portal"><div class="card"><h1>${escapeHtml(exam.title)}</h1><p>Enter your student details and exam password to begin.</p><input id="studentId" placeholder="Student ID" autocomplete="off"><input id="studentName" placeholder="Student name" autocomplete="name"><input id="pwd" type="password" placeholder="Exam password" autocomplete="off"><div id="err" class="err"></div><button id="enter">Enter Exam</button></div></div>
-<div id="app"><div class="top"><h1 id="examTitle"></h1><div id="timer" class="timer">--:--</div></div><div id="paper" class="paper"></div></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <script>
+<header class="top"><div class="title">${escapeHtml(exam.title)}</div><div class="timer"><span>TIME LEFT</span><div id="clock" class="clock">--:--:--</div></div></header>
+<main class="wrap"><section id="portal" class="card"><h2>Enter exam</h2><div class="field"><label>Student ID</label><input id="studentId" autocomplete="off"></div><div class="field"><label>Student name</label><input id="studentName" autocomplete="name"></div><div class="field"><label>Password</label><input id="password" type="password" autocomplete="off"></div><button id="startBtn">Start exam</button><div id="loginError" class="error"></div></section>
+<section id="app" class="hidden"><div id="paper" class="paper"><div class="loader">Loading exam…</div></div></section></main>
+<script>
 const EXAM_ID = ${safeId};
 const EXAM_TITLE = ${safeTitle};
 const API = '/api/exam/' + encodeURIComponent(EXAM_ID);
 const DB_NAME = 'exam-tool-student';
 const STORE = 'sessions';
-
-let session = null;
-let examData = null;
-let timerId = null;
-let submitting = false;
-
-const $ = id => document.getElementById(id);
-
-function getDeviceId() {
-  let id = localStorage.getItem('exam_device_id');
-  if (!id) {
-    id = crypto.randomUUID
-      ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2) + Date.now();
-    localStorage.setItem('exam_device_id', id);
-  }
-  return id;
-}
-
-function openDB() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(STORE)) {
-        request.result.createObjectStore(STORE, { keyPath: 'examId' });
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function getSaved() {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const request = db.transaction(STORE, 'readonly')
-      .objectStore(STORE).get(EXAM_ID);
-    request.onsuccess = () => resolve(request.result || null);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function saveSaved(value) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const request = db.transaction(STORE, 'readwrite')
-      .objectStore(STORE).put(value);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
-  });
-}
-
-function formatTime(ms) {
-  ms = Math.max(0, ms);
-  const totalSeconds = Math.floor(ms / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (hours) {
-    return String(hours).padStart(2, '0') + ':' +
-           String(minutes).padStart(2, '0') + ':' +
-           String(seconds).padStart(2, '0');
-  }
-
-  return String(minutes).padStart(2, '0') + ':' +
-         String(seconds).padStart(2, '0');
-}
-
-function escapeText(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function setLoginBusy(busy) {
-  $('enter').disabled = busy;
-  $('enter').textContent = busy ? 'Checking…' : 'Enter Exam';
-}
-
-function showLoginError(message) {
-  $('err').textContent = message || '';
-}
-
-async function requestSession(body) {
-  const response = await fetch(API + '/session', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-
-  let data = {};
-  try {
-    data = await response.json();
-  } catch (_) {}
-
-  return { response, data };
-}
-
-async function startSession() {
-  const old = await getSaved();
-  const device = getDeviceId();
-
-  /*
-    RESUME:
-    The browser may resume only its own server-created session.
-    IndexedDB is only a convenience; the server is authoritative.
-  */
-  if (old && old.sessionToken && !old.finishedAt) {
-    const resumed = await requestSession({
-      sessionToken: old.sessionToken,
-      deviceId: device,
-      studentId: old.studentId || '',
-      studentName: old.studentName || ''
-    });
-
-    if (resumed.response.ok) {
-      session = {
-        ...old,
-        ...resumed.data,
-        examId: EXAM_ID,
-        answers: old.answers || {}
-      };
-      examData = resumed.data;
-      await saveSaved(session);
-      return resumed.data;
-    }
-
-    if (resumed.response.status === 410) {
-      session = { ...old, finishedAt: Date.now() };
-      await saveSaved(session);
-      throw new Error('This exam attempt is already finished.');
-    }
-  }
-
-  const studentId = $('studentId').value.trim();
-  const studentName = $('studentName').value.trim();
-  const password = $('pwd').value;
-
-  if (!studentId) throw new Error('Enter your Student ID.');
-  if (!studentName) throw new Error('Enter your student name.');
-  if (!password) throw new Error('Enter the exam password.');
-
-  const result = await requestSession({
-    deviceId: device,
-    studentId,
-    studentName,
-    password
-  });
-
-  if (!result.response.ok) {
-    if (result.response.status === 409) {
-      throw new Error(result.data.error ||
-        'This student or device has already used this exam.');
-    }
-
-    if (result.response.status === 403) {
-      throw new Error(result.data.error ||
-        'This attempt belongs to another device.');
-    }
-
-    if (result.response.status === 401) {
-      throw new Error('Incorrect exam password.');
-    }
-
-    throw new Error(result.data.error || 'Could not start the exam.');
-  }
-
-  examData = result.data;
-  session = {
-    ...result.data,
-    examId: EXAM_ID,
-    answers: {}
-  };
-
-  await saveSaved(session);
-  return result.data;
-}
-
-function renderTemplate() {
-  const paper = $('paper');
-  const questions = examData.questions || [];
-
-  let html =
-    '<div class="paper-title">' +
-      escapeText(examData.title || EXAM_TITLE) +
-    '</div>';
-
-  questions.forEach((question, index) => {
-    html +=
-      '<div class="q">' +
-        '<div class="q-num">' +
-          (index + 1) + '. ' + escapeText(question.text) +
-        '</div>';
-
-    if (question.type === 'mcq') {
-      (question.options || []).forEach((option, optionIndex) => {
-        html +=
-          '<label class="answer-option">' +
-            '<input type="radio" name="q' + index +
-              '" value="' + optionIndex + '">' +
-            '<span>' + escapeText(option) + '</span>' +
-          '</label>';
-      });
-    } else {
-      html +=
-        '<label class="answer-option">' +
-          '<input type="radio" name="q' + index + '" value="true">' +
-          '<span>True</span>' +
-        '</label>' +
-        '<label class="answer-option">' +
-          '<input type="radio" name="q' + index + '" value="false">' +
-          '<span>False</span>' +
-        '</label>';
-    }
-
-    html += '</div>';
-  });
-
-  html += '<button class="finish" id="finishBtn">Finish Exam</button>';
-  paper.innerHTML = html;
-
-  /*
-    Restore every locally saved answer after refresh.
-  */
-  Object.keys(session.answers || {}).forEach(index => {
-    const input = paper.querySelector(
-      'input[name="q' + index + '"][value="' +
-      String(session.answers[index]) + '"]'
-    );
-
-    if (input) input.checked = true;
-  });
-
-  /*
-    Save an answer immediately whenever the student clicks it.
-  */
-  paper.querySelectorAll('input[type="radio"]').forEach(input => {
-    input.addEventListener('change', async () => {
-      session.answers = session.answers || {};
-      session.answers[input.name.slice(1)] = input.value;
-
-      await saveSaved({
-        ...session,
-        examId: EXAM_ID
-      });
-    });
-  });
-
-  $('finishBtn').onclick = () => submitExam(false);
-}
-
-async function submitExam(autoSubmit) {
-  if (!session || submitting) return;
-
-  submitting = true;
-  clearInterval(timerId);
-
-  const button = $('finishBtn');
-
-  if (button) {
-    button.disabled = true;
-    button.textContent =
-      autoSubmit ? 'Time is up — submitting…' : 'Submitting…';
-  }
-
-  try {
-    const response = await fetch(API + '/finish', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sessionToken: session.sessionToken,
-        answers: session.answers || {}
-      })
-    });
-
-    let data = {};
-    try {
-      data = await response.json();
-    } catch (_) {}
-
-    if (!response.ok) {
-      throw new Error(data.error || 'Could not submit the exam.');
-    }
-
-    session.finishedAt = data.submittedAt || Date.now();
-    session.submissionId = data.submissionId;
-
-    await saveSaved({
-      ...session,
-      examId: EXAM_ID,
-      finishedAt: session.finishedAt
-    });
-
-    showReview(data);
-  } catch (error) {
-    console.error('Submission error:', error);
-    submitting = false;
-
-    if (button) {
-      button.disabled = false;
-      button.textContent = 'Finish Exam';
-    }
-
-    alert(error.message || 'Could not submit the exam.');
-    startTimer();
-  }
-}
-
-function showReview(data) {
-  clearInterval(timerId);
-  $('timer').style.display = 'none';
-
-  let html =
-    '<div class="review-head">' +
-      '<div style="font-size:24px;font-weight:800">Exam Complete</div>' +
-      '<div class="score">' +
-        data.score + ' / ' + data.total +
-      '</div>' +
-      '<div class="pct">' + data.percentage + '%</div>' +
-      '<p>This attempt is now closed. You cannot retake this exam.</p>' +
-    '</div>';
-
-  (data.results || []).forEach(result => {
-    const unanswered = result.yourAnswer === 'Unanswered';
-    const className = result.correct
-      ? 'correct'
-      : unanswered ? 'unanswered' : 'wrong';
-
-    const status = result.correct
-      ? 'Correct ✓'
-      : unanswered ? 'Unanswered' : 'Wrong ✗';
-
-    html +=
-      '<div class="review-item">' +
-        '<div class="status ' + className + '">' +
-          status + ' — Question ' + result.questionNumber +
-        '</div>' +
-        '<div><b>' + escapeText(result.question) + '</b></div>' +
-        '<div class="review-answer">' +
-          '<span class="review-label">Your answer:</span> ' +
-          escapeText(result.yourAnswer) +
-        '</div>' +
-        '<div class="review-answer">' +
-          '<span class="review-label">Correct answer:</span> ' +
-          escapeText(result.correctAnswer) +
-        '</div>' +
-      '</div>';
-  });
-
-  $('paper').innerHTML = html;
-}
-
-function startTimer() {
-  clearInterval(timerId);
-
-  const tick = async () => {
-    if (!session || session.finishedAt) {
-      clearInterval(timerId);
-      return;
-    }
-
-    const remaining = Number(session.endAt) - Date.now();
-    $('timer').textContent = formatTime(remaining);
-
-    if (remaining <= 0) {
-      clearInterval(timerId);
-      await submitExam(true);
-    }
-  };
-
-  tick();
-  timerId = setInterval(tick, 250);
-}
-
-async function renderPDF(dataUrl) {
-  $('paper').innerHTML = '';
-
-  const bytes = atob(dataUrl.split(',')[1]);
-  const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
-
-  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-    const page = await pdf.getPage(pageNumber);
-    const viewport = page.getViewport({ scale: 1.35 });
-    const canvas = document.createElement('canvas');
-
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    canvas.style.width = '100%';
-    canvas.style.height = 'auto';
-
-    $('paper').appendChild(canvas);
-
-    await page.render({
-      canvasContext: canvas.getContext('2d'),
-      viewport
-    }).promise;
-  }
-}
-
-async function showExam(data) {
-  examData = data;
-
-  $('portal').style.display = 'none';
-  $('app').style.display = 'block';
-  $('examTitle').textContent = data.title || EXAM_TITLE;
-
-  if (data.type === 'template') {
-    renderTemplate();
-  } else {
-    await renderPDF(data.pdfDataUrl);
-  }
-
-  startTimer();
-}
-
-async function enterExam() {
-  showLoginError('');
-  setLoginBusy(true);
-
-  try {
-    const data = await startSession();
-    await showExam(data);
-  } catch (error) {
-    console.error('Exam start error:', error);
-    showLoginError(error.message);
-    setLoginBusy(false);
-  }
-}
-
-$('enter').onclick = enterExam;
-
-['studentId', 'studentName', 'pwd'].forEach(id => {
-  $(id).onkeydown = event => {
-    if (event.key === 'Enter') enterExam();
-  };
-});
-
-/*
-  Restore identity fields for an active local attempt.
-  This never bypasses the server's device/student checks.
-*/
-(async () => {
-  try {
-    const old = await getSaved();
-
-    if (old && old.sessionToken && !old.finishedAt) {
-      $('studentId').value = old.studentId || '';
-      $('studentName').value = old.studentName || '';
-    }
-  } catch (_) {}
-
-  $('studentId').focus();
-})();
+let session=null, examData=null, timerId=null, submitting=false;
+function getDeviceId(){let id=localStorage.getItem('exam_device_id');if(!id){id=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(16).slice(2));localStorage.setItem('exam_device_id',id)}return id}
+function openDB(){return new Promise((resolve,reject)=>{const r=indexedDB.open(DB_NAME,1);r.onupgradeneeded=()=>{if(!r.result.objectStoreNames.contains(STORE))r.result.createObjectStore(STORE,{keyPath:'examId'})};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
+async function getSaved(){const db=await openDB();return new Promise((resolve,reject)=>{const tx=db.transaction(STORE,'readonly');const r=tx.objectStore(STORE).get(EXAM_ID);r.onsuccess=()=>resolve(r.result||null);r.onerror=()=>reject(r.error)})}
+async function saveSaved(data){const db=await openDB();return new Promise((resolve,reject)=>{const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).put({...data,examId:EXAM_ID});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}
+async function requestSession(body){const r=await fetch(API+'/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});let data={};try{data=await r.json()}catch(_){}if(!r.ok){const e=new Error(data.error||'Could not start exam');e.status=r.status;throw e}return data}
+async function startSession(){const deviceId=getDeviceId();const saved=await getSaved();if(saved&&saved.sessionToken&&!saved.finishedAt){try{return await requestSession({sessionToken:saved.sessionToken,deviceId,studentId:saved.studentId,studentName:saved.studentName})}catch(e){if(e.status===410){await saveSaved({...saved,finishedAt:Date.now()})}}}
+const studentId=document.getElementById('studentId').value.trim();const studentName=document.getElementById('studentName').value.trim();const password=document.getElementById('password').value;if(!studentId||!studentName||!password)throw new Error('Enter your Student ID, name, and password.');return await requestSession({deviceId,studentId,studentName,password})}
+function renderTemplate(){const paper=document.getElementById('paper');paper.innerHTML='<h1>'+escapeHtml(examData.title)+'</h1><div class="meta">Time limit: '+Math.ceil(examData.durationMs/60000)+' min</div><div class="rule"></div>';const answers=(session.answers&&typeof session.answers==='object')?session.answers:{};examData.questions.forEach((q,i)=>{const box=document.createElement('div');box.className='q';const text=document.createElement('div');text.className='qtext';text.innerHTML='<span class="qnum">'+(i+1)+'.</span>'+escapeHtml(q.text);box.appendChild(text);const opts=document.createElement('div');opts.className='options';const values=q.type==='mcq'?q.options:['True','False'];values.forEach((label,j)=>{const value=q.type==='mcq'?String(j):label.toLowerCase();const row=document.createElement('label');row.className='opt';const input=document.createElement('input');input.type='radio';input.name='q'+i;input.value=value;if(String(answers[i]??'')===value)input.checked=true;input.addEventListener('change',async()=>{session.answers=session.answers||{};session.answers[i]=value;await saveSaved(session)});row.append(input,document.createTextNode(label));opts.appendChild(row)});box.appendChild(opts);paper.appendChild(box)});const btn=document.createElement('button');btn.textContent='Submit exam';btn.addEventListener('click',()=>submitExam(false));paper.appendChild(btn)}
+function escapeHtml(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
+async function submitExam(autoSubmit){if(submitting)return;submitting=true;clearInterval(timerId);try{const r=await fetch(API+'/finish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionToken:session.sessionToken,answers:session.answers||{}})});const data=await r.json();if(!r.ok)throw new Error(data.error||'Submission failed');session.finishedAt=Date.now();session.submissionId=data.submissionId;await saveSaved(session);showReview(data,autoSubmit)}catch(e){submitting=false;alert(e.message||'Submission failed')}}
+function showReview(data){const paper=document.getElementById('paper');paper.innerHTML='<h1>Exam submitted</h1><div class="score">'+data.score+' / '+data.total+'</div><div class="small">'+data.percentage+'%</div><div class="review">'+(data.results||[]).map(r=>'<div class="review-row"><b>'+r.questionNumber+'. '+escapeHtml(r.question)+'</b><div class="'+(r.correct?'correct':'wrong')+'">'+(r.correct?'Correct':'Incorrect')+'</div><div>Your answer: '+escapeHtml(r.yourAnswer)+'</div><div>Correct answer: '+escapeHtml(r.correctAnswer)+'</div></div>').join('')+'</div>'}
+function startTimer(){function tick(){const left=Math.max(0,Number(session.endAt)-Date.now());const sec=Math.floor(left/1000),h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;document.getElementById('clock').textContent=[h,m,s].map((v,i)=>String(v).padStart(i?'2':'2','0')).join(':');if(left<=0){clearInterval(timerId);submitExam(true)}}tick();timerId=setInterval(tick,1000)}
+async function enterExam(){const err=document.getElementById('loginError');err.textContent='';const btn=document.getElementById('startBtn');btn.disabled=true;btn.textContent='Starting…';try{session=await startSession();examData=session;session.answers=session.answers||{};await saveSaved(session);document.getElementById('portal').classList.add('hidden');document.getElementById('app').classList.remove('hidden');renderTemplate();startTimer()}catch(e){err.textContent=e.message||'Could not start exam.'}finally{btn.disabled=false;btn.textContent='Start exam'}}
+document.getElementById('startBtn').addEventListener('click',enterExam);['studentId','studentName','password'].forEach(id=>document.getElementById(id).addEventListener('keydown',e=>{if(e.key==='Enter')enterExam()}));
+(async()=>{const saved=await getSaved();if(saved&&!saved.finishedAt){document.getElementById('studentId').value=saved.studentId||'';document.getElementById('studentName').value=saved.studentName||''}})();
 </script></body></html>`);
 });
 
-initDatabase().then(()=>{const PORT=process.env.PORT||3000;app.listen(PORT,()=>console.log(`Exam backend listening on port ${PORT}`));}).catch(error=>{console.error('Database initialization failed:',error);process.exit(1)});
+const PORT=process.env.PORT||10000;
+initDatabase().then(()=>app.listen(PORT,()=>console.log(`Exam backend listening on port ${PORT}`))).catch(error=>{console.error('Database initialization failed:',error);process.exit(1)});
