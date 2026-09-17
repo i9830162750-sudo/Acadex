@@ -148,7 +148,7 @@ app.post('/exam/create', async(req, res) => {
       }
     }
     const examId='exam_'+crypto.randomBytes(12).toString('hex');
-    await pool.query(`INSERT INTO exams(id,title,type,pdf_data_url,questions_json,student_password,duration_ms,created_at,owner_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[examId,title,type,type==='pdf'?pdfDataUrl:null,type==='template'?questions:null,studentPassword,durationMs,Date.now(),user.id]);
+    await pool.query(`INSERT INTO exams(id,title,type,pdf_data_url,questions_json,student_password,duration_ms,created_at,owner_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[examId,title,type,type==='pdf'?pdfDataUrl:null,type==='template'?JSON.stringify(questions):null,studentPassword,durationMs,Date.now(),user.id]);
     const baseUrl=process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
     res.json({examId,url:`${baseUrl}/exam/${examId}`});
   }catch(error){ console.error('Create exam error:', error); res.status(500).json({error:'Failed to create exam'}); }
@@ -271,7 +271,7 @@ app.post('/api/exam/:id/finish', async(req, res) => {
     const graded=gradeExam(exam, answers);
     const submittedAt=Date.now();
     const submissionId='sub_'+crypto.randomBytes(12).toString('hex');
-    await pool.query(`INSERT INTO exam_submissions(id,exam_id,session_token,student_id,student_name,answers_json,results_json,score,total,percentage,submitted_at,student_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[submissionId,exam.id,token,session.student_id,session.student_name,answers,graded.results,graded.score,graded.total,graded.percentage,submittedAt,session.student_user_id||null]);
+    await pool.query(`INSERT INTO exam_submissions(id,exam_id,session_token,student_id,student_name,answers_json,results_json,score,total,percentage,submitted_at,student_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[submissionId,exam.id,token,session.student_id,session.student_name,JSON.stringify(answers),JSON.stringify(graded.results),graded.score,graded.total,graded.percentage,submittedAt,session.student_user_id||null]);
     await pool.query(`UPDATE exam_sessions SET finished_at=$1 WHERE token=$2`,[submittedAt,token]);
     res.json({submissionId, ...graded, answers, submittedAt});
   }catch(error){console.error('Finish exam error:', error);res.status(500).json({error:'Failed to submit exam'});}
