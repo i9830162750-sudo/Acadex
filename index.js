@@ -1,6 +1,5 @@
 const https = require('https');
-const vm = require('vm');
-const fs = require('fs');
+const Module = require('module');
 
 const RAW_URL = 'https://raw.githubusercontent.com/i9830162750-sudo/Exam-tool/c3ea1d36252ee04726b859aa73600716bcf18aa4/index.js';
 
@@ -20,7 +19,11 @@ function fetchText(url) {
 (async () => {
   let source = await fetchText(RAW_URL);
   source = source.replace(/font-size:24px;\s+font-weight:800/g, 'font-size:24px; font-weight:800');
-  vm.runInThisContext(source, { filename: 'index.js' });
+
+  const mod = new Module(__filename, module);
+  mod.filename = __filename;
+  mod.paths = Module._nodeModulePaths(__dirname);
+  mod._compile(source, __filename);
 })().catch(err => {
   console.error('Failed to bootstrap Exam backend:', err);
   process.exit(1);
