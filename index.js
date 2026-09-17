@@ -264,7 +264,7 @@ app.post('/api/exam/:id/finish', async(req, res) => {
       const s=existing.rows[0];
       return res.json({submissionId:s.id, score:s.score, total:s.total, percentage:Number(s.percentage), answers:s.answers_json, results:s.results_json, submittedAt:Number(s.submitted_at)});
     }
-    const sessionResult=await pool.query(`SELECT token,student_id,student_name,end_at,finished_at FROM exam_sessions WHERE token=$1 AND exam_id=$2`,[token,exam.id]);
+    const sessionResult=await pool.query(`SELECT token,student_id,student_name,student_user_id,end_at,finished_at FROM exam_sessions WHERE token=$1 AND exam_id=$2`,[token,exam.id]);
     const session=sessionResult.rows[0]; if(!session) return res.status(404).json({error:'Session not found'});
     if(session.finished_at) return res.status(409).json({error:'This attempt is already closed.'});
     const answers=req.body?.answers && typeof req.body.answers === 'object'?req.body.answers:{};
@@ -295,20 +295,16 @@ app.get('/exam/:id', async(req, res) => {
 #app{display:none;min-height:100vh;background:#f2f1ef;color:#171615;padding:24px}.top{max-width:900px;margin:0 auto 18px;display:flex;align-items:center;justify-content:space-between;gap:16px}.top h1{margin:0;font-size:24px}.timer{font-weight:800;background:#171615;color:#fff;padding:10px 14px;border-radius:10px}.paper{max-width:900px;margin:0 auto;background:#fff;color:#181716;padding:42px 52px;border-radius:5px;box-shadow:0 10px 35px #0001}.paper-title{text-align:center;font-size:25px;font-weight:800;margin-bottom:34px}.q{margin:0 0 28px;padding-bottom:22px;border-bottom:1px solid #eee}.q-num{font-weight:700;font-size:17px;line-height:1.5;margin-bottom:12px}.answer-option{display:flex;align-items:center;gap:12px;padding:13px 15px;margin:8px 0;border:1px solid #ddd;border-radius:10px;cursor:pointer;transition:.15s ease;background:#fff}.answer-option:hover{background:#f5f5f5}.answer-option input{width:18px;height:18px;cursor:pointer;flex:none}.answer-option span{cursor:pointer;flex:1}.review-head{text-align:center;border-bottom:1px solid #eee;padding-bottom:28px;margin-bottom:28px}.score{font-size:42px;font-weight:900}.pct{font-size:18px;color:#666}.review-item{padding:20px 0;border-bottom:1px solid #eee}.status{font-weight:800;margin-bottom:8px}.correct{color:#137333}.wrong{color:#b3261e}.unanswered{color:#666}.review-label{font-weight:700}.review-answer{margin:5px 0 10px;color:#444}
 @media(max-width:650px){#app{padding:12px}.paper{padding:26px 18px}.top h1{font-size:18px}.score{font-size:34px}}
 </style></head><body>
-<div id="portal"><div class="card"><h1>${escapeHtml(exam.title)}</h1><p>Enter your student details and exam password to begin.</p><input id="studentId" placeholder="Student ID" autocomplete="off"><input id="studentName" placeholder="Student name" autocomplete="name"><input id="pwd" type="password" placeholder="Exam password" autocomplete="off"><div id="err" class="err"></div><button id="enter">Enter Exam</button></div></div>
+<div id="portal"><div class="card"><h1>${escapeHtml(exam.title)}</h1><p>Sign in with your student account, then enter the exam password.</p><div id="accountStep"><input id="studentEmail" type="email" placeholder="Student account email" autocomplete="username"><input id="studentPassword" type="password" placeholder="Account password" autocomplete="current-password"><button id="studentLogin">Sign in as Student</button></div><div id="examStep" class="hidden"><div id="studentWelcome" style="margin:10px 0 16px;color:#bbb"></div><input id="pwd" type="password" placeholder="Exam password" autocomplete="off"><button id="enter">Enter Exam</button></div><div id="err" class="err"></div></div></div>
 <div id="app"><div class="top"><h1 id="examTitle"></h1><div id="timer" class="timer">--:--</div></div><div id="paper" class="paper"></div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
-  const EXAM_ID=$ {
-    safeId
-  };
-  const EXAM_TITLE=$ {
-    safeTitle
-  };
+  const EXAM_ID=${safeId};
+  const EXAM_TITLE=${safeTitle};
   const API='/api/exam/'+encodeURIComponent(EXAM_ID);
   const DB_NAME='exam-tool-student';
   const STORE='sessions';
-  let session=null, examData=null, timerId=null;
+  let session=null, examData=null, timerId=null, studentAuthToken='';
   const $=id => document.getElementById(id);
   function deviceId() {
     let id=localStorage.getItem('exam_device_id');
@@ -356,13 +352,17 @@ app.get('/exam/:id', async(req, res) => {
 async function startSession(){
   const old=await saved(); const did=deviceId();
   if(old&&old.sessionToken&&!old.finishedAt){
-    const r=await fetch(API+'/session', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({sessionToken:old.sessionToken, deviceId:did, studentId:old.studentId, studentName:old.studentName})});
-    if(r.ok){const d=await r.json();session={...old, ...d, answers:old.answers||{}};return d}
+    const resumeToken=studentAuthToken||old.studentAuthToken||'';
+    if(!resumeToken) throw new Error('Please sign in to your student account to resume this exam.');
+    studentAuthToken=resumeToken;
+    const r=await fetch(API+'/session', {method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentAuthToken}, body:JSON.stringify({sessionToken:old.sessionToken, deviceId:did, studentId:old.studentId, studentName:old.studentName})});
+    if(r.ok){const d=await r.json();session={...old, ...d, studentAuthToken, answers:old.answers||{}};return d}
     if(r.status === 410){throw new Error('This exam attempt is already finished.')}
   }
-  const body={deviceId:did, studentId:$('studentId').value.trim(), studentName:$('studentName').value.trim(), password:$('pwd').value};
-  const r=await fetch(API+'/session', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not start exam');
-  session={...d, answers:{}};await save({...session, examId:EXAM_ID});return d;
+  const body={deviceId:did, password:$('pwd').value};
+  const r=await fetch(API+'/session', {method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentAuthToken}, body:JSON.stringify(body)});
+  const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not start exam');
+  session={...d, studentAuthToken, answers:{}};await save({...session, examId:EXAM_ID});return d;
 }
 function renderTemplate(){
   const paper=$('paper'); const qs=examData.questions||[]; let html='<div class="paper-title">'+esc(examData.title||EXAM_TITLE)+'</div>';
@@ -377,10 +377,11 @@ function showReview(d){$('timer').style.display='none';let html='<div class="rev
     font-weight:800">Exam Complete</div><div class="score">'+d.score+' / '+d.total+'</div><div class="pct">'+d.percentage+'%</div><p>This attempt is now closed. You cannot retake this exam.</p></div>';d.results.forEach(r => {const cls=r.correct?'correct':r.yourAnswer === 'Unanswered'?'unanswered':'wrong';const status=r.correct?'Correct ✓':r.yourAnswer === 'Unanswered'?'Unanswered':'Wrong ✗';html+='<div class="review-item"><div class="status '+cls+'">'+status+' — Question '+r.questionNumber+'</div><div><b>'+esc(r.question)+'</b></div><div class="review-answer"><span class="review-label">Your answer:</span> '+esc(r.yourAnswer)+'</div><div class="review-answer"><span class="review-label">Correct answer:</span> '+esc(r.correctAnswer)+'</div></div>'});$('paper').innerHTML=html}
 function startTimer(){clearInterval(timerId);timerId=setInterval(async() => {const left=Number(session.endAt)-Date.now();$('timer').textContent=fmt(left);if(left<=0){clearInterval(timerId);await submitExam(true)}}, 250);$('timer').textContent=fmt(Number(session.endAt)-Date.now())}
 async function showExam(d){examData=d;$('portal').style.display='none';$('app').style.display='block';$('examTitle').textContent=d.title||EXAM_TITLE;if(d.type === 'template')renderTemplate();else await renderPDF(d.pdfDataUrl);startTimer()}
-async function renderPDF(dataUrl){$('paper').innerHTML='';const pdf=await pdfjsLib.getDocument({data:atob(dataUrl.split(', ')[1])}).promise;for(let n=1;n<=pdf.numPages;n++){const page=await pdf.getPage(n), vp=page.getViewport({scale:1.35}), canvas=document.createElement('canvas');canvas.width=vp.width;canvas.height=vp.height;canvas.style.width='100%';canvas.style.height='auto';$('paper').appendChild(canvas);await page.render({canvasContext:canvas.getContext('2d'), viewport:vp}).promise}}
-async function enter(){const btn=$('enter');$('err').textContent='';btn.disabled=true;btn.textContent='Checking…';try{const d=await startSession();await showExam(d)}catch(e){$('err').textContent=e.message;btn.disabled=false;btn.textContent='Enter Exam'}}
-$('enter').onclick=enter;$('pwd').onkeydown=e => {if(e.key === 'Enter')enter()};
-(async() => {try{const old=await saved();if(old&&old.sessionToken&&!old.finishedAt){$('studentId').value=old.studentId||'';$('studentName').value=old.studentName||''}}catch(_){} $('studentId').focus()})();
+async function renderPDF(dataUrl){$('paper').innerHTML='';const pdf=await pdfjsLib.getDocument({data:atob(dataUrl.split(',')[1])}).promise;for(let n=1;n<=pdf.numPages;n++){const page=await pdf.getPage(n), vp=page.getViewport({scale:1.35}), canvas=document.createElement('canvas');canvas.width=vp.width;canvas.height=vp.height;canvas.style.width='100%';canvas.style.height='auto';$('paper').appendChild(canvas);await page.render({canvasContext:canvas.getContext('2d'), viewport:vp}).promise}}
+async function loginStudent(){const btn=$('studentLogin');$('err').textContent='';btn.disabled=true;btn.textContent='Signing in…';try{const email=$('studentEmail').value.trim().toLowerCase(),password=$('studentPassword').value;if(!email||!password)throw new Error('Enter your student account email and password.');const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not sign in.');if(!d.user||d.user.role!=='student')throw new Error('This is not a student account.');studentAuthToken=d.token;const old=await saved();if(old&&old.sessionToken&&!old.finishedAt){session={...old,studentAuthToken};await save({...session,examId:EXAM_ID});}$('studentWelcome').textContent='Signed in as '+(d.user.displayName||d.user.email)+(d.user.studentId?' · Student ID '+d.user.studentId:'');$('accountStep').classList.add('hidden');$('examStep').classList.remove('hidden');$('pwd').focus();}catch(e){$('err').textContent=e.message;btn.disabled=false;btn.textContent='Sign in as Student'}}
+async function enter(){const btn=$('enter');$('err').textContent='';btn.disabled=true;btn.textContent='Checking…';try{if(!studentAuthToken)throw new Error('Sign in to your student account first.');const d=await startSession();await showExam(d)}catch(e){$('err').textContent=e.message;btn.disabled=false;btn.textContent='Enter Exam'}}
+$('studentLogin').onclick=loginStudent;$('studentPassword').onkeydown=e => {if(e.key === 'Enter')loginStudent()};$('enter').onclick=enter;$('pwd').onkeydown=e => {if(e.key === 'Enter')enter()};
+(async() => {try{const old=await saved();if(old&&old.studentAuthToken&&!old.finishedAt){studentAuthToken=old.studentAuthToken;$('studentEmail').value='';}}catch(_){} $('studentEmail').focus()})();
 </script></body></html>`);
 });
 
