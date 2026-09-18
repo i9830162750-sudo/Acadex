@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Exam Page Generator</title>
+<title>Acadex — Exam Platform</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
@@ -443,6 +443,16 @@ html:not([data-theme-pref="light"]):not([data-theme-pref="dark"]){ }
           </div>
           <label class="field-label">Exam title</label>
           <input type="text" class="text-input" id="examTitle" placeholder="e.g. Biology Mid-Term — Grade 10" maxlength="80" />
+          <div style="margin-top:18px;">
+            <label class="field-label" for="examFolder">📁 Folder</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <select class="text-input" id="examFolder" style="flex:1;">
+                <option value="">No folder</option>
+              </select>
+              <button type="button" class="small-action" id="newFolderBtn">＋ New</button>
+            </div>
+            <p class="hint">Keep your exams organised. Folders are saved to your teacher account.</p>
+          </div>
         </section>
 
         <!-- Panel 1: Exam Type -->
@@ -603,7 +613,7 @@ html:not([data-theme-pref="light"]):not([data-theme-pref="dark"]){ }
   <div class="account-modal">
     <button class="account-close" id="accountClose" type="button">×</button>
     <div id="accountLoggedOut">
-      <div class="account-brand">VOID Exam</div>
+      <div class="account-brand">ACADEX</div>
       <h2 id="accountHeading">Your account</h2>
       <p class="account-muted">Sign in to save exams, students, attempts and results to the server.</p>
       <div class="account-tabs"><button class="account-tab active" data-account-mode="login">Log in</button><button class="account-tab" data-account-mode="register">Create account</button></div>
@@ -690,6 +700,8 @@ html:not([data-theme-pref="light"]):not([data-theme-pref="dark"]){ }
   const generateBtn = document.getElementById('generateBtn');
   const examTitle       = document.getElementById('examTitle');
   const studentPassword = document.getElementById('studentPassword');
+  const examFolder = document.getElementById('examFolder');
+  const newFolderBtn = document.getElementById('newFolderBtn');
   const toast           = document.getElementById('toast');
 
   const serverStatus     = document.getElementById('serverStatus');
@@ -986,15 +998,3 @@ html:not([data-theme-pref="light"]):not([data-theme-pref="dark"]){ }
   });
   document.getElementById('secondsDown').addEventListener('click', () => {
     examSeconds.value = (parseInt(examSeconds.value, 10) || 0) - 5;
-    clampField(examSeconds, 0, 59);
-    updateGenerateBtn();
-  });
-  examSeconds.addEventListener('input', () => { clampField(examSeconds, 0, 59); updateGenerateBtn(); });
-
-  document.querySelectorAll('.preset-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      examHours.value   = btn.dataset.h;
-      examMinutes.value = btn.dataset.m;
-      examSeconds.value = btn.dataset.s;
-      updateGenerateBtn();
-    });
