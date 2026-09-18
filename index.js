@@ -1,3 +1,372 @@
+const express = require('express');
+const cors = require('cors');
+const crypto = require('crypto');
+require('dotenv').config( {
+  path: '.env.local'
+});
+const {
+  Pool
+}
+= require('pg');
+const pool = new Pool( {
+  connectionString: process.env.DATABASE_URL, 
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
+const app = express();
+app.use(cors());
+app.use(express.json( {
+  limit: '25mb'
+}));
+function makeToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+function makeDeviceId() {
+  return crypto.randomBytes(24).toString('hex');
+}
+function hashToken(token){ return crypto.createHash('sha256').update(token).digest('hex'); }
+function hashPassword(password, salt){ return crypto.scryptSync(password, salt, 64).toString('hex'); }
+function makePasswordHash(password){ const salt=crypto.randomBytes(16).toString('hex'); return salt+':'+hashPassword(password,salt); }
+function verifyPassword(password, stored){ try{ const [salt,hex]=String(stored).split(':'); if(!salt||!hex)return false; const a=Buffer.from(hashPassword(password,salt),'hex'); const b=Buffer.from(hex,'hex'); return a.length===b.length && crypto.timingSafeEqual(a,b); }catch(_){return false;} }
+async function getAuthUser(req){ const raw=typeof req.headers.authorization==='string'&&req.headers.authorization.startsWith('Bearer ')?req.headers.authorization.slice(7).trim():''; if(!raw)return null; const {rows}=await pool.query(`SELECT u.id,u.role,u.email,u.display_name,u.student_id FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>$2`,[hashToken(raw),Date.now()]); return rows[0]||null; }
+async function requireRole(req,res,role){ const user=await getAuthUser(req); if(!user){res.status(401).json({error:'Login required.'});return null;} if(user.role!==role){res.status(403).json({error:'This account does not have access to this area.'});return null;} req.user=user; return user; }
+function escapeHtml(value) {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+async function initDatabase(){
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      role TEXT NOT NULL CHECK (role IN ('teacher','student')),
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      student_id TEXT,
+      created_at BIGINT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      token_hash TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at BIGINT NOT NULL,
+      expires_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+    CREATE TABLE IF NOT EXISTS exams (
+      id TEXT PRIMARY KEY, 
+      title TEXT NOT NULL, 
+      type TEXT NOT NULL DEFAULT 'pdf', 
+      pdf_data_url TEXT, 
+      questions_json JSONB, 
+      student_password TEXT NOT NULL, 
+      duration_ms BIGINT NOT NULL, 
+      created_at BIGINT NOT NULL,
+      owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL
+    );
+    CREATE TABLE IF NOT EXISTS exam_sessions (
+      token TEXT PRIMARY KEY, 
+      exam_id TEXT NOT NULL REFERENCES exams(id) ON DELETE CASCADE, 
+      started_at BIGINT NOT NULL, 
+      end_at BIGINT NOT NULL, 
+      created_at BIGINT NOT NULL, 
+      finished_at BIGINT, 
+      student_id TEXT, 
+      student_name TEXT, 
+      device_id TEXT
+    );
+    ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS student_id TEXT;
+    ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS student_name TEXT;
+    ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS device_id TEXT;
+    ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS student_user_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE exams ADD COLUMN IF NOT EXISTS owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+    CREATE TABLE IF NOT EXISTS exam_folders (
+      id TEXT PRIMARY KEY,
+      owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      created_at BIGINT NOT NULL
+    );
+    ALTER TABLE exams ADD COLUMN IF NOT EXISTS folder_id TEXT REFERENCES exam_folders(id) ON DELETE SET NULL;
+    CREATE INDEX IF NOT EXISTS idx_exam_folders_owner ON exam_folders(owner_user_id);
+    CREATE INDEX IF NOT EXISTS idx_exams_owner_folder ON exams(owner_user_id, folder_id);
+    CREATE INDEX IF NOT EXISTS idx_exam_sessions_exam ON exam_sessions(exam_id);
+    CREATE INDEX IF NOT EXISTS idx_exam_sessions_device ON exam_sessions(exam_id, device_id);
+    CREATE INDEX IF NOT EXISTS idx_exam_sessions_student ON exam_sessions(exam_id, student_id);
+    CREATE TABLE IF NOT EXISTS exam_submissions (
+      id TEXT PRIMARY KEY, 
+      exam_id TEXT NOT NULL REFERENCES exams(id) ON DELETE CASCADE, 
+      session_token TEXT NOT NULL UNIQUE REFERENCES exam_sessions(token) ON DELETE CASCADE, 
+      student_id TEXT NOT NULL, 
+      student_name TEXT NOT NULL, 
+      answers_json JSONB NOT NULL, 
+      results_json JSONB NOT NULL, 
+      score INTEGER NOT NULL, 
+      total INTEGER NOT NULL, 
+      percentage NUMERIC NOT NULL, 
+      submitted_at BIGINT NOT NULL,
+      student_user_id TEXT REFERENCES users(id) ON DELETE SET NULL
+    );
+    ALTER TABLE exam_submissions ADD COLUMN IF NOT EXISTS student_user_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+    CREATE INDEX IF NOT EXISTS idx_exam_submissions_exam ON exam_submissions(exam_id);
+    CREATE INDEX IF NOT EXISTS idx_exam_submissions_student ON exam_submissions(exam_id, student_id);
+  `);
+  console.log('Neon database ready.');
+}
+
+async function getExam(id){
+  const { rows } = await pool.query(`SELECT id,title,type,pdf_data_url,questions_json,student_password,duration_ms,created_at,owner_user_id FROM exams WHERE id=$1`,[id]);
+  return rows[0] || null;
+}
+function parseQuestions(exam){
+  if(!exam.questions_json) return [];
+  try { return typeof exam.questions_json === 'string' ? JSON.parse(exam.questions_json) : exam.questions_json; }
+  catch(_){ return []; }
+}
+function publicExam(exam){
+  return { examId:exam.id, title:exam.title, type:exam.type, pdfDataUrl:exam.pdf_data_url||null, questions:parseQuestions(exam), durationMs:Number(exam.duration_ms), createdAt:Number(exam.created_at) };
+}
+
+
+app.post('/api/auth/register', async(req,res)=>{ try{ const {role,email,password,displayName,studentId}=req.body||{}; if(!['teacher','student'].includes(role))return res.status(400).json({error:'Choose teacher or student.'}); const e=String(email||'').trim().toLowerCase(); const p=String(password||''); const n=String(displayName||'').trim(); if(!e||!e.includes('@'))return res.status(400).json({error:'Enter a valid email.'}); if(p.length<6)return res.status(400).json({error:'Password must be at least 6 characters.'}); if(n.length<2)return res.status(400).json({error:'Enter your name.'}); if(role==='student'&&!String(studentId||'').trim())return res.status(400).json({error:'Student ID is required.'}); const exists=await pool.query('SELECT id FROM users WHERE email=$1',[e]); if(exists.rows[0])return res.status(409).json({error:'An account with that email already exists.'}); const id='usr_'+crypto.randomBytes(12).toString('hex'); await pool.query('INSERT INTO users(id,role,email,password_hash,display_name,student_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,role,e,makePasswordHash(p),n,role==='student'?String(studentId).trim():null,Date.now()]); const token=makeToken(); await pool.query('INSERT INTO auth_sessions(token_hash,user_id,created_at,expires_at) VALUES($1,$2,$3,$4)',[hashToken(token),id,Date.now(),Date.now()+1000*60*60*24*30]); res.json({token,user:{id,role,email:e,displayName:n,studentId:role==='student'?String(studentId).trim():null}}); }catch(err){console.error(err);res.status(500).json({error:'Could not create account.'});} });
+app.post('/api/auth/login', async(req,res)=>{ try{ const e=String(req.body?.email||'').trim().toLowerCase(), p=String(req.body?.password||''); const {rows}=await pool.query('SELECT id,role,email,password_hash,display_name,student_id FROM users WHERE email=$1',[e]); const u=rows[0]; if(!u||!verifyPassword(p,u.password_hash))return res.status(401).json({error:'Incorrect email or password.'}); const token=makeToken(); await pool.query('INSERT INTO auth_sessions(token_hash,user_id,created_at,expires_at) VALUES($1,$2,$3,$4)',[hashToken(token),u.id,Date.now(),Date.now()+1000*60*60*24*30]); res.json({token,user:{id:u.id,role:u.role,email:u.email,displayName:u.display_name,studentId:u.student_id}}); }catch(err){console.error(err);res.status(500).json({error:'Could not log in.'});} });
+app.post('/api/auth/logout', async(req,res)=>{ try{ const raw=String(req.headers.authorization||'').replace(/^Bearer\s+/,'').trim(); if(raw)await pool.query('DELETE FROM auth_sessions WHERE token_hash=$1',[hashToken(raw)]); res.json({ok:true}); }catch(err){res.status(500).json({error:'Could not log out.'});} });
+app.get('/api/auth/me', async(req,res)=>{ try{const u=await getAuthUser(req); if(!u)return res.status(401).json({error:'Not logged in.'}); res.json({user:{id:u.id,role:u.role,email:u.email,displayName:u.display_name,studentId:u.student_id}});}catch(err){res.status(500).json({error:'Could not load account.'});} });
+app.get('/api/teacher/exams', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows}=await pool.query(`SELECT e.id,e.title,e.type,e.duration_ms,e.created_at,e.folder_id,f.name AS folder_name,COUNT(s.token)::int AS attempts FROM exams e LEFT JOIN exam_sessions s ON s.exam_id=e.id LEFT JOIN exam_folders f ON f.id=e.folder_id WHERE e.owner_user_id=$1 GROUP BY e.id,f.name ORDER BY e.created_at DESC`,[u.id]); res.json({exams:rows.map(x=>({...x,durationMs:Number(x.duration_ms),createdAt:Number(x.created_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load exams.'});} });
+
+app.get('/api/teacher/folders', async(req,res)=>{
+  try{
+    const u=await requireRole(req,res,'teacher'); if(!u)return;
+    const {rows}=await pool.query(`SELECT f.id,f.name,f.created_at,COUNT(e.id)::int AS exam_count FROM exam_folders f LEFT JOIN exams e ON e.folder_id=f.id AND e.owner_user_id=$1 WHERE f.owner_user_id=$1 GROUP BY f.id ORDER BY f.created_at ASC`,[u.id]);
+    res.json({folders:rows.map(x=>({...x,examCount:Number(x.exam_count||0),createdAt:Number(x.created_at)}))});
+  }catch(err){console.error(err);res.status(500).json({error:'Could not load folders.'});}
+});
+app.post('/api/teacher/folders', async(req,res)=>{
+  try{
+    const u=await requireRole(req,res,'teacher'); if(!u)return;
+    const name=String(req.body?.name||'').trim();
+    if(!name)return res.status(400).json({error:'Folder name is required.'});
+    if(name.length>80)return res.status(400).json({error:'Folder name is too long.'});
+    const duplicate=await pool.query('SELECT id FROM exam_folders WHERE owner_user_id=$1 AND LOWER(name)=LOWER($2) LIMIT 1',[u.id,name]);
+    if(duplicate.rows[0])return res.status(409).json({error:'A folder with that name already exists.'});
+    const id='folder_'+crypto.randomBytes(12).toString('hex');
+    const createdAt=Date.now();
+    await pool.query('INSERT INTO exam_folders(id,owner_user_id,name,created_at) VALUES($1,$2,$3,$4)',[id,u.id,name,createdAt]);
+    res.status(201).json({folder:{id,name,createdAt}});
+  }catch(err){console.error(err);res.status(500).json({error:'Could not create folder.'});}
+});
+app.patch('/api/teacher/folders/:id', async(req,res)=>{
+  try{
+    const u=await requireRole(req,res,'teacher'); if(!u)return;
+    const name=String(req.body?.name||'').trim();
+    if(!name)return res.status(400).json({error:'Folder name is required.'});
+    if(name.length>80)return res.status(400).json({error:'Folder name is too long.'});
+    const duplicate=await pool.query('SELECT id FROM exam_folders WHERE owner_user_id=$1 AND LOWER(name)=LOWER($2) AND id<>$3 LIMIT 1',[u.id,name,req.params.id]);
+    if(duplicate.rows[0])return res.status(409).json({error:'A folder with that name already exists.'});
+    const result=await pool.query('UPDATE exam_folders SET name=$1 WHERE id=$2 AND owner_user_id=$3 RETURNING id,name,created_at',[name,req.params.id,u.id]);
+    if(!result.rows[0])return res.status(404).json({error:'Folder not found.'});
+    const f=result.rows[0];
+    res.json({folder:{id:f.id,name:f.name,createdAt:Number(f.created_at)}});
+  }catch(err){console.error(err);res.status(500).json({error:'Could not rename folder.'});}
+});
+app.delete('/api/teacher/folders/:id', async(req,res)=>{
+  try{
+    const u=await requireRole(req,res,'teacher'); if(!u)return;
+    const result=await pool.query('DELETE FROM exam_folders WHERE id=$1 AND owner_user_id=$2 RETURNING id',[req.params.id,u.id]);
+    if(!result.rows[0])return res.status(404).json({error:'Folder not found.'});
+    res.json({ok:true});
+  }catch(err){console.error(err);res.status(500).json({error:'Could not delete folder.'});}
+});
+app.get('/api/teacher/exams/:id', async(req,res)=>{
+  try{
+    const u=await requireRole(req,res,'teacher'); if(!u)return;
+    const {rows}=await pool.query(`SELECT e.id,e.title,e.type,e.pdf_data_url,e.questions_json,e.student_password,e.duration_ms,e.created_at,e.owner_user_id,e.folder_id,f.name AS folder_name FROM exams e LEFT JOIN exam_folders f ON f.id=e.folder_id WHERE e.id=$1 AND e.owner_user_id=$2`,[req.params.id,u.id]);
+    const e=rows[0]; if(!e)return res.status(404).json({error:'Exam not found.'});
+    res.json({id:e.id,title:e.title,type:e.type,pdfDataUrl:e.pdf_data_url||null,questions:parseQuestions(e),studentPassword:e.student_password,durationMs:Number(e.duration_ms),createdAt:Number(e.created_at),folderId:e.folder_id||null,folderName:e.folder_name||null,url:(process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/exam/${encodeURIComponent(e.id)}`});
+  }catch(err){console.error(err);res.status(500).json({error:'Could not load exam.'});}
+});
+app.patch('/api/teacher/exams/:id', async(req,res)=>{
+  try{
+    const u=await requireRole(req,res,'teacher'); if(!u)return;
+    const current=await pool.query('SELECT id,title,type,pdf_data_url,questions_json,student_password,duration_ms,folder_id FROM exams WHERE id=$1 AND owner_user_id=$2',[req.params.id,u.id]);
+    const e=current.rows[0]; if(!e)return res.status(404).json({error:'Exam not found.'});
+    const body=req.body||{};
+    const title=body.title===undefined?e.title:String(body.title||'').trim();
+    const password=body.studentPassword===undefined?e.student_password:String(body.studentPassword||'');
+    const duration=body.durationMs===undefined?Number(e.duration_ms):Number(body.durationMs);
+    const type=body.type===undefined?e.type:String(body.type);
+    if(!title)return res.status(400).json({error:'title is required'});
+    if(!password)return res.status(400).json({error:'studentPassword is required'});
+    if(!Number.isFinite(duration)||duration<=0)return res.status(400).json({error:'durationMs must be a positive number'});
+    if(!['pdf','template'].includes(type))return res.status(400).json({error:'type must be pdf or template'});
+    let pdf=e.pdf_data_url||null, questions=parseQuestions(e);
+    if(type==='pdf'){
+      if(body.pdfDataUrl!==undefined) pdf=body.pdfDataUrl;
+      if(!pdf||typeof pdf!=='string'||!pdf.startsWith('data:application/pdf'))return res.status(400).json({error:'pdfDataUrl must be a base64 PDF data URL'});
+      questions=[];
+    }else{
+      questions=body.questions===undefined?questions:body.questions;
+      if(!Array.isArray(questions)||!questions.length)return res.status(400).json({error:'template exams require at least one question'});
+      for(const q of questions){
+        if(!q||!['mcq','tf'].includes(q.type)||typeof q.text!=='string'||!q.text.trim())return res.status(400).json({error:'invalid question'});
+        if(q.type==='mcq'&&(!Array.isArray(q.options)||q.options.length!==4||q.options.some(o=>typeof o!=='string'||!o.trim())||!Number.isInteger(Number(q.answer))||Number(q.answer)<0||Number(q.answer)>3))return res.status(400).json({error:'invalid MCQ question'});
+        if(q.type==='tf'&&q.answer!=='true'&&q.answer!=='false')return res.status(400).json({error:'invalid True/False question'});
+      }
+      pdf=null;
+    }
+    let folderId=e.folder_id||null;
+    if(body.folderId!==undefined){
+      folderId=body.folderId===null||body.folderId===''?null:String(body.folderId);
+      if(folderId){const f=await pool.query('SELECT id FROM exam_folders WHERE id=$1 AND owner_user_id=$2',[folderId,u.id]);if(!f.rows[0])return res.status(400).json({error:'Folder not found.'});}
+    }
+    await pool.query('UPDATE exams SET title=$1,type=$2,pdf_data_url=$3,questions_json=$4,student_password=$5,duration_ms=$6,folder_id=$7 WHERE id=$8 AND owner_user_id=$9',[title,type,pdf,type==='template'?JSON.stringify(questions):null,password,duration,folderId,e.id,u.id]);
+    const baseUrl=process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`;
+    res.json({ok:true,examId:e.id,url:`${baseUrl}/exam/${encodeURIComponent(e.id)}`});
+  }catch(err){console.error(err);res.status(500).json({error:'Could not save exam changes.'});}
+});
+app.get('/api/teacher/exams/:id/results', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows:er}=await pool.query('SELECT id,title FROM exams WHERE id=$1 AND owner_user_id=$2',[req.params.id,u.id]);if(!er[0])return res.status(404).json({error:'Exam not found.'}); const {rows}=await pool.query(`SELECT s.id,s.student_id,s.student_name,s.student_user_id,s.score,s.total,s.percentage,s.submitted_at FROM exam_submissions s WHERE s.exam_id=$1 ORDER BY s.submitted_at DESC`,[req.params.id]); res.json({exam:er[0],results:rows.map(x=>({...x,percentage:Number(x.percentage),submittedAt:Number(x.submitted_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load results.'});} });
+app.get('/api/teacher/submissions/:id', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows}=await pool.query(`SELECT s.id,s.student_id,s.student_name,s.score,s.total,s.percentage,s.answers_json,s.results_json,s.submitted_at,e.id AS exam_id,e.title FROM exam_submissions s JOIN exams e ON e.id=s.exam_id WHERE s.id=$1 AND e.owner_user_id=$2`,[req.params.id,u.id]);if(!rows[0])return res.status(404).json({error:'Result not found.'});const r=rows[0];res.json({submissionId:r.id,examId:r.exam_id,examTitle:r.title,studentId:r.student_id,studentName:r.student_name,score:r.score,total:r.total,percentage:Number(r.percentage),answers:r.answers_json,results:r.results_json,submittedAt:Number(r.submitted_at)});}catch(err){console.error(err);res.status(500).json({error:'Could not load result.'});} });
+app.get('/api/student/results', async(req,res)=>{ try{const u=await requireRole(req,res,'student');if(!u)return; const {rows}=await pool.query(`SELECT s.id,s.exam_id,e.title,s.score,s.total,s.percentage,s.submitted_at FROM exam_submissions s JOIN exams e ON e.id=s.exam_id WHERE s.student_user_id=$1 ORDER BY s.submitted_at DESC`,[u.id]);res.json({results:rows.map(x=>({...x,percentage:Number(x.percentage),submittedAt:Number(x.submitted_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load results.'});} });
+app.get('/api/teacher/students', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows}=await pool.query(`SELECT DISTINCT u.id,u.email,u.display_name,u.student_id FROM users u JOIN exam_submissions s ON s.student_user_id=u.id JOIN exams e ON e.id=s.exam_id WHERE e.owner_user_id=$1 ORDER BY u.display_name`,[u.id]);res.json({students:rows});}catch(err){console.error(err);res.status(500).json({error:'Could not load students.'});} });
+
+
+app.get('/ping', (req, res) => res.json({ok:true, ts:Date.now()}));
+
+app.post('/exam/create', async(req, res) => {
+  try{
+    const user=await requireRole(req,res,'teacher'); if(!user)return;
+    const {title, studentPassword, durationMs, type='pdf', pdfDataUrl=null, questions=[], folderId=null}=req.body||{};
+    if(!title || typeof title !== 'string') return res.status(400).json({error:'title is required'});
+    if(!studentPassword || typeof studentPassword !== 'string') return res.status(400).json({error:'studentPassword is required'});
+    if(typeof durationMs !== 'number' || durationMs<=0) return res.status(400).json({error:'durationMs must be a positive number'});
+    if(!['pdf', 'template'].includes(type)) return res.status(400).json({error:'type must be pdf or template'});
+    if(type === 'pdf' && (!pdfDataUrl || typeof pdfDataUrl !== 'string' || !pdfDataUrl.startsWith('data:application/pdf'))) return res.status(400).json({error:'pdfDataUrl must be a base64 PDF data URL'});
+    if(type === 'template'){
+      if(!Array.isArray(questions)||!questions.length) return res.status(400).json({error:'template exams require at least one question'});
+      for(const q of questions){
+        if(!q || !['mcq', 'tf'].includes(q.type) || typeof q.text !== 'string' || !q.text.trim()) return res.status(400).json({error:'invalid question'});
+        if(q.type === 'mcq' && (!Array.isArray(q.options)||q.options.length !== 4||q.options.some(o => typeof o !== 'string'||!o.trim())||!Number.isInteger(q.answer)||q.answer<0||q.answer>3)) return res.status(400).json({error:'invalid MCQ question'});
+        if(q.type === 'tf' && q.answer !== 'true' && q.answer !== 'false') return res.status(400).json({error:'invalid True/False question'});
+      }
+    }
+    let safeFolderId=null;
+    if(folderId!==null && folderId!==''){
+      const folder=await pool.query('SELECT id FROM exam_folders WHERE id=$1 AND owner_user_id=$2',[String(folderId),user.id]);
+      if(!folder.rows[0])return res.status(400).json({error:'Folder not found.'});
+      safeFolderId=String(folderId);
+    }
+    const examId='exam_'+crypto.randomBytes(12).toString('hex');
+    await pool.query(`INSERT INTO exams(id,title,type,pdf_data_url,questions_json,student_password,duration_ms,created_at,owner_user_id,folder_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,[examId,title,type,type==='pdf'?pdfDataUrl:null,type==='template'?JSON.stringify(questions):null,studentPassword,durationMs,Date.now(),user.id,safeFolderId]);
+    const baseUrl=process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+    res.json({examId,url:`${baseUrl}/exam/${examId}`});
+  }catch(error){ console.error('Create exam error:', error); res.status(500).json({error:'Failed to create exam'}); }
+});
+
+app.get('/api/exam/:id', async(req, res) => {
+  try{
+    const exam=await getExam(req.params.id); if(!exam) return res.status(404).json({error:'Exam not found'});
+    const data=publicExam(exam); delete data.pdfDataUrl; delete data.questions; res.json(data);
+  }catch(error){console.error(error);res.status(500).json({error:'Failed to load exam'});}
+});
+
+app.post('/api/exam/:id/session', async(req, res) => {
+  try{
+    const exam=await getExam(req.params.id); if(!exam) return res.status(404).json({error:'Exam not found'});
+    const body=req.body||{};
+    const token=typeof body.sessionToken === 'string'?body.sessionToken.trim():'';
+    const authUser=await getAuthUser(req);
+    if(!authUser || authUser.role!=='student') return res.status(401).json({error:'Student account login is required.'});
+    const deviceId=typeof body.deviceId === 'string'?body.deviceId.trim():'';
+    let studentId=typeof body.studentId === 'string'?body.studentId.trim():'';
+    let studentName=typeof body.studentName === 'string'?body.studentName.trim():'';
+    if(authUser && authUser.role==='student'){ studentId=authUser.student_id||studentId; studentName=authUser.display_name||studentName; }
+    const password=typeof body.password === 'string'?body.password:'';
+
+    if(token){
+      const {rows}=await pool.query(`SELECT token,exam_id,student_id,student_name,device_id,started_at,end_at,finished_at FROM exam_sessions WHERE token=$1 AND exam_id=$2`,[token,exam.id]);
+      const s=rows[0];
+      if(s){
+        if(s.student_user_id && s.student_user_id !== authUser.id) return res.status(403).json({error:'This exam attempt belongs to another student account.'});
+        if(!s.student_user_id) await pool.query('UPDATE exam_sessions SET student_user_id=$1 WHERE token=$2',[authUser.id,s.token]);
+        const now=Date.now();
+        if(s.finished_at || now>=Number(s.end_at)){
+          if(!s.finished_at) await pool.query(`UPDATE exam_sessions SET finished_at=$1 WHERE token=$2`,[now,s.token]);
+          return res.status(410).json({error:'This exam attempt is already finished.', endAt:Number(s.end_at)});
+        }
+        if(deviceId && s.device_id && s.device_id !== deviceId) return res.status(403).json({error:'This exam attempt belongs to another device.'});
+        return res.json({sessionToken:s.token, studentId:s.student_id, studentName:s.student_name, deviceId:s.device_id, startedAt:Number(s.started_at), endAt:Number(s.end_at), ...publicExam(exam)});
+      }
+    }
+
+    if(!deviceId) return res.status(400).json({error:'Device ID is required.'});
+    if(!studentId) return res.status(400).json({error:'Student ID is required.'});
+    if(!studentName) return res.status(400).json({error:'Student name is required.'});
+    if(studentId.length>100) return res.status(400).json({error:'Student ID is too long.'});
+    if(studentName.length>150) return res.status(400).json({error:'Student name is too long.'});
+
+    // DEVICE FIRST: one device can only ever have one attempt for this exam.
+    const d=await pool.query(`SELECT token,student_id,student_name,device_id,student_user_id,started_at,end_at,finished_at FROM exam_sessions WHERE exam_id=$1 AND device_id=$2 ORDER BY created_at DESC LIMIT 1`,[exam.id,deviceId]);
+    const ds=d.rows[0];
+    if(ds){
+      const now=Date.now();
+      if(ds.finished_at || now>=Number(ds.end_at)){
+        if(!ds.finished_at) await pool.query(`UPDATE exam_sessions SET finished_at=$1 WHERE token=$2`,[now,ds.token]);
+        return res.status(409).json({error:'This device has already used this exam.'});
+      }
+      if(ds.student_id === studentId){
+        return res.status(409).json({error:'This device has already used this exam.'});
+      }
+
+      return res.status(409).json({error:'This device has already started this exam with another student.'});
+    }
+
+    // STUDENT SECOND: a student can only have one attempt for this exam.
+    const st=await pool.query(`SELECT token,student_id,student_name,device_id,student_user_id,started_at,end_at,finished_at FROM exam_sessions WHERE exam_id=$1 AND LOWER(student_id)=LOWER($2) ORDER BY created_at DESC LIMIT 1`,[exam.id,studentId]);
+    const ss=st.rows[0];
+    if(ss) return res.status(409).json({error:'This student has already used this exam.'});
+
+    if(password !== exam.student_password) return res.status(401).json({error:'Incorrect password'});
+    const now=Date.now(), endAt=now+Number(exam.duration_ms), newToken=makeToken();
+    await pool.query(`INSERT INTO exam_sessions(token,exam_id,started_at,end_at,created_at,student_id,student_name,device_id,student_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[newToken,exam.id,now,endAt,now,studentId,studentName,deviceId,authUser?.id||null]);
+    res.json({sessionToken:newToken, studentId, studentName, deviceId, startedAt:now, endAt, ...publicExam(exam)});
+  }catch(error){console.error('Session error:', error);res.status(500).json({error:'Failed to start exam'});}
+});
+
+function normalizeAnswer(value){
+  if(value === undefined || value === null) return null;
+  return String(value);
+}
+function gradeExam(exam, answers){
+  const questions=parseQuestions(exam);
+  const safeAnswers=answers && typeof answers === 'object' ? answers : {};
+  let score=0;
+  const results=questions.map((q, i) => {
+    const raw=safeAnswers[i] ?? safeAnswers[String(i)];
+    const your=normalizeAnswer(raw);
+    let correctAnswer, correct=false;
+    if(q.type === 'mcq'){
+      const idx=Number(q.answer);
+      correctAnswer=q.options[idx] ?? '';
+      correct=your !== null && Number.isInteger(Number(your)) && Number(your) === idx;
+    }else{
+      correctAnswer=q.answer === 'true'?'True':'False';
+      correct=your !== null && your.toLowerCase() === q.answer;
+    }
+    if(correct) score++;
+    let yourAnswer='Unanswered';
+    if(your !== null){
+      if(q.type === 'mcq') yourAnswer=q.options[Number(your)] ?? 'Invalid answer';
+      else yourAnswer=your.toLowerCase() === 'true'?'True':your.toLowerCase() === 'false'?'False':your;
+    }
+    return {questionNumber:i+1, question:q.text, type:q.type, yourAnswer, correctAnswer, correct};
+  });
+  const total=questions.length;
+  const percentage=total?Number(((score/total)*100).toFixed(2)):0;
+  return {score, total, percentage, results};
+}
+
+app.post('/api/exam/:id/finish', async(req, res) => {
+  try{
+    const exam=await getExam(req.params.id); if(!exam) return res.status(404).json({error:'Exam not found'});
     const authUser=await getAuthUser(req);
     if(!authUser || authUser.role!=='student') return res.status(401).json({error:'Student account login is required.'});
     const token=typeof req.body?.sessionToken === 'string'?req.body.sessionToken.trim():'';
@@ -40,8 +409,8 @@ app.get('/exam/:id', async(req, res) => {
 <style>
 *{box-sizing:border-box}html, body{margin:0;min-height:100%;font-family:system-ui, -apple-system, "Segoe UI", sans-serif;background:#0d0c0b;color:#f0ece4}.hidden{display:none!important}
 #portal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0a0908;padding:24px}.card{width:min(450px, 100%);padding:34px 30px;background:#181614;border:1px solid #ffffff18;border-radius:20px;text-align:center;box-shadow:0 24px 64px #0008}.card h1{margin:0 0 8px}.card p{color:#aaa;line-height:1.5}.card input{width:100%;padding:13px;margin:7px 0;border:1px solid #ffffff22;border-radius:10px;background:#0e0d0c;color:#fff;font-size:16px}.card button, .finish{border:0;border-radius:10px;padding:13px 18px;font-size:16px;font-weight:700;cursor:pointer;background:#f0ece4;color:#111}.card button{width:100%;margin-top:10px}.err{color:#ff7b7b;min-height:22px;margin-top:10px}
-#app{display:none;min-height:100vh;background:#f2f1ef;color:#171615;padding:24px}.top{max-width:900px;margin:0 auto 18px;display:flex;align-items:center;justify-content:space-between;gap:16px}.top h1{margin:0;font-size:24px}.timer{font-weight:800;background:#171615;color:#fff;padding:10px 14px;border-radius:10px}.paper{max-width:900px;margin:0 auto;background:#fff;color:#181716;padding:42px 52px;border-radius:5px;box-shadow:0 10px 35px #0001}.paper-title{text-align:center;font-size:25px;font-weight:800;margin-bottom:34px}.question-page{display:none}.question-page.active{display:block}.q{margin:0;padding-bottom:22px}.q-text{font-size:25px;line-height:1.45;font-weight:600;margin-bottom:28px;white-space:pre-wrap}.q-num{font-weight:700;font-size:14px;line-height:1.5;margin-bottom:12px;color:#777;text-transform:uppercase;letter-spacing:.06em}.answer-option{display:flex;align-items:center;gap:12px;padding:13px 15px;margin:8px 0;border:1px solid #ddd;border-radius:10px;cursor:pointer;transition:.15s ease;background:#fff}.answer-option:hover{background:#f5f5f5}.answer-option input{width:18px;height:18px;cursor:pointer;flex:none}.answer-option span{cursor:pointer;flex:1}.review-head{text-align:center;border-bottom:1px solid #eee;padding-bottom:28px;margin-bottom:28px}.score{font-size:42px;font-weight:900}.pct{font-size:18px;color:#666}.review-item{padding:20px 0;border-bottom:1px solid #eee}.status{font-weight:800;margin-bottom:8px}.correct{color:#137333}.wrong{color:#b3261e}.unanswered{color:#666}.review-label{font-weight:700}.review-answer{margin:5px 0 10px;color:#444}.pager-nav{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:14px;margin-top:28px}.pager-nav .finish{width:auto}.pager-nav .finish:last-child{justify-self:end}.pager-count{text-align:center;color:#666;font-weight:700;font-size:13px}
-@media(max-width:650px){#app{padding:12px}.paper{padding:26px 18px}.top h1{font-size:18px}.score{font-size:34px}.q-text{font-size:21px}.pager-nav{grid-template-columns:1fr 1fr;}.pager-count{grid-column:1/-1;grid-row:1}.pager-nav .finish{width:100%}.pager-nav #nextBtn,.pager-nav #submitBtn{justify-self:stretch}}
+#app{display:none;min-height:100vh;background:#f2f1ef;color:#171615;padding:24px}.top{max-width:900px;margin:0 auto 18px;display:flex;align-items:center;justify-content:space-between;gap:16px}.top h1{margin:0;font-size:24px}.timer{font-weight:800;background:#171615;color:#fff;padding:10px 14px;border-radius:10px}.paper{max-width:900px;margin:0 auto;background:#fff;color:#181716;padding:42px 52px;border-radius:5px;box-shadow:0 10px 35px #0001}.paper-title{text-align:center;font-size:25px;font-weight:800;margin-bottom:34px}.question-page{display:none}.question-page.active{display:block}.q-text{font-size:25px;line-height:1.45;font-weight:600;margin-bottom:28px;white-space:pre-wrap}.q{margin:0 0 28px;padding-bottom:22px;border-bottom:1px solid #eee}.q-num{font-weight:700;font-size:17px;line-height:1.5;margin-bottom:12px}.answer-option{display:flex;align-items:center;gap:12px;padding:13px 15px;margin:8px 0;border:1px solid #ddd;border-radius:10px;cursor:pointer;transition:.15s ease;background:#fff}.answer-option:hover{background:#f5f5f5}.answer-option input{width:18px;height:18px;cursor:pointer;flex:none}.answer-option span{cursor:pointer;flex:1}.review-head{text-align:center;border-bottom:1px solid #eee;padding-bottom:28px;margin-bottom:28px}.score{font-size:42px;font-weight:900}.pct{font-size:18px;color:#666}.review-item{padding:20px 0;border-bottom:1px solid #eee}.status{font-weight:800;margin-bottom:8px}.correct{color:#137333}.wrong{color:#b3261e}.unanswered{color:#666}.review-label{font-weight:700}.review-answer{margin:5px 0 10px;color:#444}
+@media(max-width:650px){#app{padding:12px}.paper{padding:26px 18px}.top h1{font-size:18px}.score{font-size:34px}.q-text{font-size:21px}.pager-nav{grid-template-columns:1fr 1fr}.pager-count{grid-column:1/-1;grid-row:1}.pager-nav .finish{width:100%}}
 </style></head><body>
 <div id="portal"><div class="card"><h1>${escapeHtml(exam.title)}</h1><p>Sign in with your student account, then enter the exam password.</p><form id="accountStep" autocomplete="on"><input id="studentEmail" type="email" placeholder="Student account email" autocomplete="username"><input id="studentPassword" type="password" placeholder="Account password" autocomplete="current-password"><button id="studentLogin" type="submit">Sign in as Student</button></form><form id="examStep" class="hidden"><div id="studentWelcome" style="margin:10px 0 16px;color:#bbb"></div><input id="pwd" type="password" placeholder="Exam password" autocomplete="off"><button id="enter" type="submit">Enter Exam</button></form><div id="err" class="err"></div></div></div>
 <div id="app"><div class="top"><h1 id="examTitle"></h1><div id="timer" class="timer">--:--</div></div><div id="paper" class="paper"></div></div>
