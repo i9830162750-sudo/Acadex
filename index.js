@@ -176,6 +176,53 @@ app.delete('/api/teacher/folders/:id', async(req,res)=>{
     res.json({ok:true});
   }catch(err){console.error(err);res.status(500).json({error:'Could not delete folder.'});}
 });
+app.get('/api/teacher/exams/:id', async(req,res)=>{
+  try{
+    const u=await requireRole(req,res,'teacher'); if(!u)return;
+    const {rows}=await pool.query(`SELECT e.id,e.title,e.type,e.pdf_data_url,e.questions_json,e.student_password,e.duration_ms,e.created_at,e.owner_user_id,e.folder_id,f.name AS folder_name FROM exams e LEFT JOIN exam_folders f ON f.id=e.folder_id WHERE e.id=$1 AND e.owner_user_id=$2`,[req.params.id,u.id]);
+    const e=rows[0]; if(!e)return res.status(404).json({error:'Exam not found.'});
+    res.json({id:e.id,title:e.title,type:e.type,pdfDataUrl:e.pdf_data_url||null,questions:parseQuestions(e),studentPassword:e.student_password,durationMs:Number(e.duration_ms),createdAt:Number(e.created_at),folderId:e.folder_id||null,folderName:e.folder_name||null,url:(process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/exam/${encodeURIComponent(e.id)}`});
+  }catch(err){console.error(err);res.status(500).json({error:'Could not load exam.'});}
+});
+app.patch('/api/teacher/exams/:id', async(req,res)=>{
+  try{
+    const u=await requireRole(req,res,'teacher'); if(!u)return;
+    const current=await pool.query('SELECT id,title,type,pdf_data_url,questions_json,student_password,duration_ms,folder_id FROM exams WHERE id=$1 AND owner_user_id=$2',[req.params.id,u.id]);
+    const e=current.rows[0]; if(!e)return res.status(404).json({error:'Exam not found.'});
+    const body=req.body||{};
+    const title=body.title===undefined?e.title:String(body.title||'').trim();
+    const password=body.studentPassword===undefined?e.student_password:String(body.studentPassword||'');
+    const duration=body.durationMs===undefined?Number(e.duration_ms):Number(body.durationMs);
+    const type=body.type===undefined?e.type:String(body.type);
+    if(!title)return res.status(400).json({error:'title is required'});
+    if(!password)return res.status(400).json({error:'studentPassword is required'});
+    if(!Number.isFinite(duration)||duration<=0)return res.status(400).json({error:'durationMs must be a positive number'});
+    if(!['pdf','template'].includes(type))return res.status(400).json({error:'type must be pdf or template'});
+    let pdf=e.pdf_data_url||null, questions=parseQuestions(e);
+    if(type==='pdf'){
+      if(body.pdfDataUrl!==undefined) pdf=body.pdfDataUrl;
+      if(!pdf||typeof pdf!=='string'||!pdf.startsWith('data:application/pdf'))return res.status(400).json({error:'pdfDataUrl must be a base64 PDF data URL'});
+      questions=[];
+    }else{
+      questions=body.questions===undefined?questions:body.questions;
+      if(!Array.isArray(questions)||!questions.length)return res.status(400).json({error:'template exams require at least one question'});
+      for(const q of questions){
+        if(!q||!['mcq','tf'].includes(q.type)||typeof q.text!=='string'||!q.text.trim())return res.status(400).json({error:'invalid question'});
+        if(q.type==='mcq'&&(!Array.isArray(q.options)||q.options.length!==4||q.options.some(o=>typeof o!=='string'||!o.trim())||!Number.isInteger(Number(q.answer))||Number(q.answer)<0||Number(q.answer)>3))return res.status(400).json({error:'invalid MCQ question'});
+        if(q.type==='tf'&&q.answer!=='true'&&q.answer!=='false')return res.status(400).json({error:'invalid True/False question'});
+      }
+      pdf=null;
+    }
+    let folderId=e.folder_id||null;
+    if(body.folderId!==undefined){
+      folderId=body.folderId===null||body.folderId===''?null:String(body.folderId);
+      if(folderId){const f=await pool.query('SELECT id FROM exam_folders WHERE id=$1 AND owner_user_id=$2',[folderId,u.id]);if(!f.rows[0])return res.status(400).json({error:'Folder not found.'});}
+    }
+    await pool.query('UPDATE exams SET title=$1,type=$2,pdf_data_url=$3,questions_json=$4,student_password=$5,duration_ms=$6,folder_id=$7 WHERE id=$8 AND owner_user_id=$9',[title,type,pdf,type==='template'?JSON.stringify(questions):null,password,duration,folderId,e.id,u.id]);
+    const baseUrl=process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`;
+    res.json({ok:true,examId:e.id,url:`${baseUrl}/exam/${encodeURIComponent(e.id)}`});
+  }catch(err){console.error(err);res.status(500).json({error:'Could not save exam changes.'});}
+});
 app.get('/api/teacher/exams/:id/results', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows:er}=await pool.query('SELECT id,title FROM exams WHERE id=$1 AND owner_user_id=$2',[req.params.id,u.id]);if(!er[0])return res.status(404).json({error:'Exam not found.'}); const {rows}=await pool.query(`SELECT s.id,s.student_id,s.student_name,s.student_user_id,s.score,s.total,s.percentage,s.submitted_at FROM exam_submissions s WHERE s.exam_id=$1 ORDER BY s.submitted_at DESC`,[req.params.id]); res.json({exam:er[0],results:rows.map(x=>({...x,percentage:Number(x.percentage),submittedAt:Number(x.submitted_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load results.'});} });
 app.get('/api/teacher/submissions/:id', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows}=await pool.query(`SELECT s.id,s.student_id,s.student_name,s.score,s.total,s.percentage,s.answers_json,s.results_json,s.submitted_at,e.id AS exam_id,e.title FROM exam_submissions s JOIN exams e ON e.id=s.exam_id WHERE s.id=$1 AND e.owner_user_id=$2`,[req.params.id,u.id]);if(!rows[0])return res.status(404).json({error:'Result not found.'});const r=rows[0];res.json({submissionId:r.id,examId:r.exam_id,examTitle:r.title,studentId:r.student_id,studentName:r.student_name,score:r.score,total:r.total,percentage:Number(r.percentage),answers:r.answers_json,results:r.results_json,submittedAt:Number(r.submitted_at)});}catch(err){console.error(err);res.status(500).json({error:'Could not load result.'});} });
 app.get('/api/student/results', async(req,res)=>{ try{const u=await requireRole(req,res,'student');if(!u)return; const {rows}=await pool.query(`SELECT s.id,s.exam_id,e.title,s.score,s.total,s.percentage,s.submitted_at FROM exam_submissions s JOIN exams e ON e.id=s.exam_id WHERE s.student_user_id=$1 ORDER BY s.submitted_at DESC`,[u.id]);res.json({results:rows.map(x=>({...x,percentage:Number(x.percentage),submittedAt:Number(x.submitted_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load results.'});} });
@@ -346,8 +393,11 @@ app.post('/api/exam/:id/finish', async(req, res) => {
 
 app.get('/api/exam/:id/result/:token', async(req, res) => {
   try{
-    const {rows}=await pool.query(`SELECT id,student_id,student_name,answers_json,results_json,score,total,percentage,submitted_at FROM exam_submissions WHERE exam_id=$1 AND session_token=$2`,[req.params.id,req.params.token]);
+    const authUser=await getAuthUser(req);
+    if(!authUser || authUser.role!=='student') return res.status(401).json({error:'Student account login is required.'});
+    const {rows}=await pool.query(`SELECT id,student_id,student_name,answers_json,results_json,score,total,percentage,submitted_at,student_user_id FROM exam_submissions WHERE exam_id=$1 AND session_token=$2`,[req.params.id,req.params.token]);
     const s=rows[0]; if(!s) return res.status(404).json({error:'Result not found'});
+    if(s.student_user_id && s.student_user_id!==authUser.id) return res.status(403).json({error:'This result belongs to another student account.'});
     res.json({submissionId:s.id, studentId:s.student_id, studentName:s.student_name, answers:s.answers_json, results:s.results_json, score:s.score, total:s.total, percentage:Number(s.percentage), submittedAt:Number(s.submitted_at)});
   }catch(error){console.error(error);res.status(500).json({error:'Failed to load result'});}
 });
