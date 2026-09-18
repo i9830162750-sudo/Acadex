@@ -29,6 +29,24 @@ function hashToken(token){ return crypto.createHash('sha256').update(token).dige
 function hashPassword(password, salt){ return crypto.scryptSync(password, salt, 64).toString('hex'); }
 function makePasswordHash(password){ const salt=crypto.randomBytes(16).toString('hex'); return salt+':'+hashPassword(password,salt); }
 function verifyPassword(password, stored){ try{ const [salt,hex]=String(stored).split(':'); if(!salt||!hex)return false; const a=Buffer.from(hashPassword(password,salt),'hex'); const b=Buffer.from(hex,'hex'); return a.length===b.length && crypto.timingSafeEqual(a,b); }catch(_){return false;} }
+function makeOneTimeToken(){ return crypto.randomBytes(32).toString('hex'); }
+function publicBaseUrl(req){ return process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`; }
+async function sendEmail({to,subject,html}){
+  const key=process.env.RESEND_API_KEY;
+  const from=process.env.EMAIL_FROM;
+  if(!key || !from) throw new Error('Email service is not configured.');
+  const response=await fetch('https://api.resend.com/emails',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
+    body:JSON.stringify({from,to:[to],subject,html})
+  });
+  const body=await response.json().catch(()=>({}));
+  if(!response.ok) throw new Error(body.message || 'Email provider rejected the message.');
+  return body;
+}
+function authEmailShell(title,body){
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>body{margin:0;background:#0f1017;color:#f5f5f7;font-family:Inter,system-ui,sans-serif;padding:40px}.card{max-width:520px;margin:40px auto;background:#181922;border:1px solid #2b2d3b;border-radius:16px;padding:32px;box-shadow:0 20px 60px #0006}h1{margin:0 0 10px;font-size:26px}p{line-height:1.6;color:#b9bbc7}a.button{display:inline-block;background:#575bea;color:white;text-decoration:none;padding:12px 18px;border-radius:9px;font-weight:800}small{color:#8f92a1;word-break:break-all}</style></head><body><div class="card"><div style="font-size:12px;letter-spacing:.12em;font-weight:900;color:#8d90ff">ACADEX</div><h1>${escapeHtml(title)}</h1>${body}</div></body></html>`;
+}
 async function getAuthUser(req){ const raw=typeof req.headers.authorization==='string'&&req.headers.authorization.startsWith('Bearer ')?req.headers.authorization.slice(7).trim():''; if(!raw)return null; const {rows}=await pool.query(`SELECT u.id,u.role,u.email,u.display_name,u.student_id FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>$2`,[hashToken(raw),Date.now()]); return rows[0]||null; }
 async function requireRole(req,res,role){ const user=await getAuthUser(req); if(!user){res.status(401).json({error:'Login required.'});return null;} if(user.role!==role){res.status(403).json({error:'This account does not have access to this area.'});return null;} req.user=user; return user; }
 function escapeHtml(value) {
@@ -46,6 +64,20 @@ async function initDatabase(){
       student_id TEXT,
       created_at BIGINT NOT NULL
     );
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at BIGINT;
+    UPDATE users SET email_verified_at=created_at WHERE email_verified_at IS NULL;
+    CREATE TABLE IF NOT EXISTS email_verification_tokens (
+      token_hash TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_email_verification_user ON email_verification_tokens(user_id);
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      token_hash TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_password_reset_user ON password_reset_tokens(user_id);
     CREATE TABLE IF NOT EXISTS auth_sessions (
       token_hash TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -127,10 +159,115 @@ function publicExam(exam){
 }
 
 
-app.post('/api/auth/register', async(req,res)=>{ try{ const {role,email,password,displayName,studentId}=req.body||{}; if(!['teacher','student'].includes(role))return res.status(400).json({error:'Choose teacher or student.'}); const e=String(email||'').trim().toLowerCase(); const p=String(password||''); const n=String(displayName||'').trim(); if(!e||!e.includes('@'))return res.status(400).json({error:'Enter a valid email.'}); if(p.length<6)return res.status(400).json({error:'Password must be at least 6 characters.'}); if(n.length<2)return res.status(400).json({error:'Enter your name.'}); if(role==='student'&&!String(studentId||'').trim())return res.status(400).json({error:'Student ID is required.'}); const exists=await pool.query('SELECT id FROM users WHERE email=$1',[e]); if(exists.rows[0])return res.status(409).json({error:'An account with that email already exists.'}); const id='usr_'+crypto.randomBytes(12).toString('hex'); await pool.query('INSERT INTO users(id,role,email,password_hash,display_name,student_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,role,e,makePasswordHash(p),n,role==='student'?String(studentId).trim():null,Date.now()]); const token=makeToken(); await pool.query('INSERT INTO auth_sessions(token_hash,user_id,created_at,expires_at) VALUES($1,$2,$3,$4)',[hashToken(token),id,Date.now(),Date.now()+1000*60*60*24*30]); res.json({token,user:{id,role,email:e,displayName:n,studentId:role==='student'?String(studentId).trim():null}}); }catch(err){console.error(err);res.status(500).json({error:'Could not create account.'});} });
-app.post('/api/auth/login', async(req,res)=>{ try{ const e=String(req.body?.email||'').trim().toLowerCase(), p=String(req.body?.password||''); const {rows}=await pool.query('SELECT id,role,email,password_hash,display_name,student_id FROM users WHERE email=$1',[e]); const u=rows[0]; if(!u||!verifyPassword(p,u.password_hash))return res.status(401).json({error:'Incorrect email or password.'}); const token=makeToken(); await pool.query('INSERT INTO auth_sessions(token_hash,user_id,created_at,expires_at) VALUES($1,$2,$3,$4)',[hashToken(token),u.id,Date.now(),Date.now()+1000*60*60*24*30]); res.json({token,user:{id:u.id,role:u.role,email:u.email,displayName:u.display_name,studentId:u.student_id}}); }catch(err){console.error(err);res.status(500).json({error:'Could not log in.'});} });
+app.post('/api/auth/register', async(req,res)=>{
+  try{
+    const {role,email,password,displayName,studentId}=req.body||{};
+    if(!['teacher','student'].includes(role))return res.status(400).json({error:'Choose teacher or student.'});
+    const e=String(email||'').trim().toLowerCase(), p=String(password||''), n=String(displayName||'').trim();
+    if(!e||!e.includes('@'))return res.status(400).json({error:'Enter a valid email.'});
+    if(p.length<6)return res.status(400).json({error:'Password must be at least 6 characters.'});
+    if(n.length<2)return res.status(400).json({error:'Enter your name.'});
+    if(role==='student'&&!String(studentId||'').trim())return res.status(400).json({error:'Student ID is required.'});
+    if(!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM)return res.status(503).json({error:'Email verification is not configured on the server yet.'});
+    const exists=await pool.query('SELECT id FROM users WHERE email=$1',[e]);
+    if(exists.rows[0])return res.status(409).json({error:'An account with that email already exists.'});
+    const id='usr_'+crypto.randomBytes(12).toString('hex'), createdAt=Date.now();
+    await pool.query('INSERT INTO users(id,role,email,password_hash,display_name,student_id,created_at,email_verified_at) VALUES($1,$2,$3,$4,$5,$6,$7,NULL)',[id,role,e,makePasswordHash(p),n,role==='student'?String(studentId).trim():null,createdAt]);
+    const rawToken=makeOneTimeToken(), tokenHash=hashToken(rawToken), expiresAt=Date.now()+1000*60*60*24;
+    await pool.query('DELETE FROM email_verification_tokens WHERE user_id=$1',[id]);
+    await pool.query('INSERT INTO email_verification_tokens(token_hash,user_id,expires_at) VALUES($1,$2,$3)',[tokenHash,id,expiresAt]);
+    const link=`${publicBaseUrl(req)}/api/auth/verify-email?token=${encodeURIComponent(rawToken)}`;
+    try{
+      await sendEmail({
+        to:e,
+        subject:'Verify your Acadex account',
+        html:authEmailShell('Verify your email',`<p>Hi ${escapeHtml(n)},</p><p>Click the button below to verify your Acadex email address. This link expires in 24 hours.</p><p><a class="button" href="${link}">Verify email</a></p><p><small>${escapeHtml(link)}</small></p>`)
+      });
+    }catch(mailErr){
+      await pool.query('DELETE FROM users WHERE id=$1',[id]);
+      throw mailErr;
+    }
+    res.status(201).json({ok:true,message:'Account created. Check your email to verify your address before logging in.'});
+  }catch(err){console.error(err);res.status(500).json({error:err.message==='Email service is not configured.'?'Email verification is not configured on the server yet.':'Could not create account.'});}
+});
+app.post('/api/auth/resend-verification', async(req,res)=>{
+  try{
+    const e=String(req.body?.email||'').trim().toLowerCase();
+    if(!e)return res.status(400).json({error:'Enter your email.'});
+    const {rows}=await pool.query('SELECT id,display_name,email_verified_at FROM users WHERE email=$1',[e]);
+    if(!rows[0] || rows[0].email_verified_at) return res.json({ok:true,message:'If that account needs verification, a new email has been sent.'});
+    const rawToken=makeOneTimeToken();
+    await pool.query('DELETE FROM email_verification_tokens WHERE user_id=$1',[rows[0].id]);
+    await pool.query('INSERT INTO email_verification_tokens(token_hash,user_id,expires_at) VALUES($1,$2,$3)',[hashToken(rawToken),rows[0].id,Date.now()+1000*60*60*24]);
+    const link=`${publicBaseUrl(req)}/api/auth/verify-email?token=${encodeURIComponent(rawToken)}`;
+    await sendEmail({to:e,subject:'Verify your Acadex account',html:authEmailShell('Verify your email',`<p>Hi ${escapeHtml(rows[0].display_name)},</p><p>Your new Acadex verification link is ready.</p><p><a class="button" href="${link}">Verify email</a></p>`)});
+    res.json({ok:true,message:'If that account needs verification, a new email has been sent.'});
+  }catch(err){console.error(err);res.status(500).json({error:'Could not resend the verification email.'});}
+});
+app.get('/api/auth/verify-email', async(req,res)=>{
+  try{
+    const token=String(req.query?.token||'').trim();
+    if(!token) return res.status(400).send(authEmailShell('Invalid link','<p>This verification link is missing its token.</p>'));
+    const {rows}=await pool.query('SELECT user_id,expires_at FROM email_verification_tokens WHERE token_hash=$1',[hashToken(token)]);
+    const row=rows[0];
+    if(!row || Number(row.expires_at)<Date.now()) return res.status(400).send(authEmailShell('Link expired','<p>This verification link is invalid or has expired. You can request a new one from Acadex.</p>'));
+    await pool.query('UPDATE users SET email_verified_at=$1 WHERE id=$2',[Date.now(),row.user_id]);
+    await pool.query('DELETE FROM email_verification_tokens WHERE token_hash=$1',[hashToken(token)]);
+    res.send(authEmailShell('Email verified','<p>Your email has been verified successfully.</p><p>You can now return to Acadex and log in.</p>'));
+  }catch(err){console.error(err);res.status(500).send(authEmailShell('Verification error','<p>Something went wrong while verifying your email.</p>'));}
+});
+app.post('/api/auth/login', async(req,res)=>{
+  try{
+    const e=String(req.body?.email||'').trim().toLowerCase(), p=String(req.body?.password||'');
+    const {rows}=await pool.query('SELECT id,role,email,password_hash,display_name,student_id,email_verified_at FROM users WHERE email=$1',[e]);
+    const u=rows[0];
+    if(!u||!verifyPassword(p,u.password_hash))return res.status(401).json({error:'Incorrect email or password.'});
+    if(!u.email_verified_at)return res.status(403).json({error:'Please verify your email before logging in. Check your inbox or resend the verification email.'});
+    const token=makeToken();
+    await pool.query('INSERT INTO auth_sessions(token_hash,user_id,created_at,expires_at) VALUES($1,$2,$3,$4)',[hashToken(token),u.id,Date.now(),Date.now()+1000*60*60*24*30]);
+    res.json({token,user:{id:u.id,role:u.role,email:u.email,displayName:u.display_name,studentId:u.student_id}});
+  }catch(err){console.error(err);res.status(500).json({error:'Could not log in.'});}
+});
+app.post('/api/auth/forgot-password', async(req,res)=>{
+  try{
+    const e=String(req.body?.email||'').trim().toLowerCase();
+    if(!e)return res.status(400).json({error:'Enter your email.'});
+    const {rows}=await pool.query('SELECT id,display_name,email,email_verified_at FROM users WHERE email=$1',[e]);
+    if(rows[0] && rows[0].email_verified_at){
+      const rawToken=makeOneTimeToken();
+      await pool.query('DELETE FROM password_reset_tokens WHERE user_id=$1',[rows[0].id]);
+      await pool.query('INSERT INTO password_reset_tokens(token_hash,user_id,expires_at) VALUES($1,$2,$3)',[hashToken(rawToken),rows[0].id,Date.now()+1000*60*30]);
+      const link=`${publicBaseUrl(req)}/api/auth/reset-password?token=${encodeURIComponent(rawToken)}`;
+      try{
+        await sendEmail({to:e,subject:'Reset your Acadex password',html:authEmailShell('Reset your password',`<p>Hi ${escapeHtml(rows[0].display_name)},</p><p>Use the button below to choose a new Acadex password. This link expires in 30 minutes.</p><p><a class="button" href="${link}">Reset password</a></p>`)});
+      }catch(mailErr){ await pool.query('DELETE FROM password_reset_tokens WHERE user_id=$1',[rows[0].id]); throw mailErr; }
+    }
+    res.json({ok:true,message:'If that email belongs to an Acadex account, a reset link has been sent.'});
+  }catch(err){console.error(err);res.status(500).json({error:'Could not send the reset email.'});}
+});
+app.get('/api/auth/reset-password', async(req,res)=>{
+  const token=String(req.query?.token||'').trim();
+  if(!token) return res.status(400).send(authEmailShell('Invalid link','<p>This reset link is missing its token.</p>'));
+  const {rows}=await pool.query('SELECT user_id,expires_at FROM password_reset_tokens WHERE token_hash=$1',[hashToken(token)]);
+  if(!rows[0] || Number(rows[0].expires_at)<Date.now()) return res.status(400).send(authEmailShell('Link expired','<p>This password reset link is invalid or has expired.</p>'));
+  const safeToken=JSON.stringify(token);
+  res.type('html').send(authEmailShell('Choose a new password',`<p>Enter a new password for your Acadex account.</p><form id="f"><input id="p" type="password" minlength="6" placeholder="New password" style="width:100%;box-sizing:border-box;padding:12px;border-radius:8px;border:1px solid #343746;background:#0f1017;color:#fff;margin:10px 0"><button class="button" style="border:0;cursor:pointer" type="submit">Update password</button><div id="m" style="margin-top:12px;color:#b9bbc7"></div></form><script>const token=${safeToken};document.getElementById('f').addEventListener('submit',async(e)=>{e.preventDefault();const p=document.getElementById('p').value,m=document.getElementById('m');if(p.length<6){m.textContent='Password must be at least 6 characters.';return}const r=await fetch('/api/auth/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,password:p})});const d=await r.json().catch(()=>({}));m.textContent=r.ok?'Password updated. You can now return to Acadex and log in.':(d.error||'Could not update password.');});</script>`));
+});
+app.post('/api/auth/reset-password', async(req,res)=>{
+  try{
+    const token=String(req.body?.token||'').trim(), password=String(req.body?.password||'');
+    if(!token||password.length<6)return res.status(400).json({error:'A valid reset token and a password of at least 6 characters are required.'});
+    const {rows}=await pool.query('SELECT user_id,expires_at FROM password_reset_tokens WHERE token_hash=$1',[hashToken(token)]);
+    const row=rows[0];
+    if(!row || Number(row.expires_at)<Date.now())return res.status(400).json({error:'This reset link is invalid or has expired.'});
+    await pool.query('UPDATE users SET password_hash=$1 WHERE id=$2',[makePasswordHash(password),row.user_id]);
+    await pool.query('DELETE FROM password_reset_tokens WHERE user_id=$1',[row.user_id]);
+    await pool.query('DELETE FROM auth_sessions WHERE user_id=$1',[row.user_id]);
+    res.json({ok:true});
+  }catch(err){console.error(err);res.status(500).json({error:'Could not reset password.'});}
+});
 app.post('/api/auth/logout', async(req,res)=>{ try{ const raw=String(req.headers.authorization||'').replace(/^Bearer\s+/,'').trim(); if(raw)await pool.query('DELETE FROM auth_sessions WHERE token_hash=$1',[hashToken(raw)]); res.json({ok:true}); }catch(err){res.status(500).json({error:'Could not log out.'});} });
-app.get('/api/auth/me', async(req,res)=>{ try{const u=await getAuthUser(req); if(!u)return res.status(401).json({error:'Not logged in.'}); res.json({user:{id:u.id,role:u.role,email:u.email,displayName:u.display_name,studentId:u.student_id}});}catch(err){res.status(500).json({error:'Could not load account.'});} });
+app.get('/api/auth/me', async(req,res)=>{ try{const u=await getAuthUser(req); if(!u)return res.status(401).json({error:'Not logged in.'}); res.json({user:{id:u.id,role:u.role,email:u.email,displayName:u.display_name,studentId:u.student_id,emailVerified:true}});}catch(err){res.status(500).json({error:'Could not load account.'});} });
 app.get('/api/teacher/exams', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows}=await pool.query(`SELECT e.id,e.title,e.type,e.duration_ms,e.created_at,e.folder_id,f.name AS folder_name,COUNT(s.token)::int AS attempts FROM exams e LEFT JOIN exam_sessions s ON s.exam_id=e.id LEFT JOIN exam_folders f ON f.id=e.folder_id WHERE e.owner_user_id=$1 GROUP BY e.id,f.name ORDER BY e.created_at DESC`,[u.id]); res.json({exams:rows.map(x=>({...x,durationMs:Number(x.duration_ms),createdAt:Number(x.created_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load exams.'});} });
 
 app.get('/api/teacher/folders', async(req,res)=>{
