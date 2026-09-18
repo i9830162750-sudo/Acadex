@@ -65,12 +65,13 @@ async function initDatabase(){
       created_at BIGINT NOT NULL
     );
     ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at BIGINT;
-    UPDATE users SET email_verified_at=created_at WHERE email_verified_at IS NULL;
     CREATE TABLE IF NOT EXISTS email_verification_tokens (
       token_hash TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       expires_at BIGINT NOT NULL
     );
+    UPDATE users SET email_verified_at=created_at WHERE email_verified_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM email_verification_tokens t WHERE t.user_id=users.id);
     CREATE INDEX IF NOT EXISTS idx_email_verification_user ON email_verification_tokens(user_id);
     CREATE TABLE IF NOT EXISTS password_reset_tokens (
       token_hash TEXT PRIMARY KEY,
