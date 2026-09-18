@@ -139,7 +139,7 @@ app.get('/api/teacher/folders', async(req,res)=>{
   try{
     const u=await requireRole(req,res,'teacher'); if(!u)return;
     const {rows}=await pool.query(`SELECT f.id,f.name,f.created_at,COUNT(e.id)::int AS exam_count FROM exam_folders f LEFT JOIN exams e ON e.folder_id=f.id AND e.owner_user_id=$1 WHERE f.owner_user_id=$1 GROUP BY f.id ORDER BY f.created_at ASC`,[u.id]);
-    res.json({folders:rows.map(x=>({...x,createdAt:Number(x.created_at)}))});
+    res.json({folders:rows.map(x=>({...x,examCount:Number(x.exam_count||0),createdAt:Number(x.created_at)}))});
   }catch(err){console.error(err);res.status(500).json({error:'Could not load folders.'});}
 });
 app.post('/api/teacher/folders', async(req,res)=>{
