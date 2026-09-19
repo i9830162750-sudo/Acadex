@@ -856,6 +856,38 @@ body.student-role .student-only-nav{display:flex!important;}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}}
 </style>
 
+
+<style id="acadex-pwa-install-ui">
+  .acadex-install-prompt{
+    display:none;
+    position:fixed;
+    left:14px;
+    right:14px;
+    bottom:82px;
+    z-index:99999;
+    padding:14px;
+    border:1px solid var(--line);
+    border-radius:16px;
+    background:var(--bg-elev);
+    color:var(--ink);
+    box-shadow:var(--shadow-lg);
+    align-items:center;
+    gap:12px;
+  }
+  .acadex-install-prompt.show{display:flex}
+  .acadex-install-copy{min-width:0;flex:1}
+  .acadex-install-copy strong{display:block;font-size:.86rem}
+  .acadex-install-copy span{display:block;margin-top:3px;font-size:.72rem;line-height:1.4;color:var(--ink-soft)}
+  .acadex-install-btn{
+    flex:0 0 auto;border:0;border-radius:10px;padding:9px 12px;
+    background:var(--accent);color:var(--accent-ink);font:800 .74rem Inter,sans-serif;cursor:pointer
+  }
+  .acadex-install-close{
+    flex:0 0 auto;width:28px;height:28px;border:0;border-radius:50%;
+    background:var(--bg-sunken);color:var(--ink-soft);cursor:pointer;font-size:17px;line-height:1
+  }
+  @media(min-width:601px){.acadex-install-prompt{display:none!important}}
+</style>
 </head>
 <body>
 
@@ -3939,6 +3971,58 @@ window.acadexSetIcon = function(el, name, preserveLabel=false) {
 })();
 </script>
 
+
+<div class="acadex-install-prompt" id="acadexInstallPrompt" role="dialog" aria-label="Install Acadex">
+  <div class="acadex-install-copy">
+    <strong>Install Acadex</strong>
+    <span>Use Acadex like an app on your phone — faster to open and without the browser UI.</span>
+  </div>
+  <button class="acadex-install-btn" id="acadexInstallBtn" type="button">Install</button>
+  <button class="acadex-install-close" id="acadexInstallClose" type="button" aria-label="Dismiss">×</button>
+</div>
+
+<script id="acadex-pwa-script">
+(function(){
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+    window.navigator.standalone === true;
+  const isMobile = window.matchMedia('(max-width: 600px)').matches;
+  const promptEl = document.getElementById('acadexInstallPrompt');
+  const installBtn = document.getElementById('acadexInstallBtn');
+  const closeBtn = document.getElementById('acadexInstallClose');
+  let deferredPrompt = null;
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    });
+  }
+
+  window.addEventListener('beforeinstallprompt', event => {
+    event.preventDefault();
+    deferredPrompt = event;
+    if (isMobile && !isStandalone && promptEl) promptEl.classList.add('show');
+  });
+
+  installBtn?.addEventListener('click', async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    promptEl?.classList.remove('show');
+  });
+
+  closeBtn?.addEventListener('click', () => {
+    promptEl?.classList.remove('show');
+    try { sessionStorage.setItem('acadexInstallDismissed','1'); } catch(e) {}
+  });
+
+  try {
+    if (sessionStorage.getItem('acadexInstallDismissed') === '1') {
+      promptEl?.classList.remove('show');
+    }
+  } catch(e) {}
+})();
+</script>
 </body></html>
 
 
