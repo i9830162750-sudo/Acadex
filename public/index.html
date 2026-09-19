@@ -1127,10 +1127,6 @@ body.student-role .student-only-nav{display:flex!important;}
         <span class="btn-arrow">→</span>
       </button>
     </div>
-  </div>
-</div>
-
-<button type="button" class="mobile-create-exam-fab teacher-only-mobile" id="mobileCreateExamFab" aria-label="Create exam" title="Create exam">+</button>
 
 <nav class="mobile-nav" aria-label="Acadex mobile navigation">
   <button type="button" class="active" data-app-view="home"><span class="mobile-nav-icon">⌂</span>Home</button>
@@ -1139,6 +1135,12 @@ body.student-role .student-only-nav{display:flex!important;}
   <button type="button" data-app-view="teachers" class="student-only-mobile"><span class="mobile-nav-icon">♙</span>Teachers</button>
   <button type="button" data-app-view="settings"><span class="mobile-nav-icon">⚙</span>Settings</button>
 </nav>
+  </div>
+</div>
+
+<button type="button" class="mobile-create-exam-fab teacher-only-mobile" id="mobileCreateExamFab" aria-label="Create exam" title="Create exam">+</button>
+
+
 
 <div class="account-overlay" id="accountOverlay" aria-hidden="true">
   <div class="account-modal">
@@ -2578,6 +2580,28 @@ body.student-role .student-only-nav{display:flex!important;}
 @media(max-width:600px){
   .content-scroll{
     padding-bottom:calc(68px + env(safe-area-inset-bottom))!important;
+  }
+}
+</style>
+<style id="acadex-mobile-nav-in-flow">
+@media(max-width:600px){
+  .mobile-nav{
+    position:static!important;
+    left:auto!important;
+    right:auto!important;
+    bottom:auto!important;
+    width:100%!important;
+    height:68px!important;
+    min-height:68px!important;
+    flex:0 0 68px!important;
+    margin:0!important;
+    padding:6px!important;
+    border-radius:0!important;
+    box-sizing:border-box!important;
+    z-index:auto!important;
+  }
+  .content-scroll{
+    padding-bottom:0!important;
   }
 }
 </style>
