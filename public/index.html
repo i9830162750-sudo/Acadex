@@ -577,6 +577,17 @@ html,body{font-family:'Inter',sans-serif}
 </style>
 
 <style id="acadex-final-ui-fixes">
+/* NAV OVERFLOW / CLICK ISOLATION FIX */
+.app{position:relative;overflow:hidden;isolation:isolate;}
+.sidebar{position:relative;z-index:1000;overflow-x:hidden;}
+.main{position:relative;z-index:1;min-width:0;overflow:hidden;}
+.content-scroll{position:relative;z-index:1;min-width:0;max-width:100%;overscroll-behavior:contain;}
+.topbar{position:relative;z-index:20;flex-shrink:0;}
+@media(max-width:600px){
+  .content-scroll{padding-bottom:calc(88px + env(safe-area-inset-bottom))!important;}
+  .mobile-nav{z-index:3000!important;}
+}
+
 /* FINAL UI FIXES — navigation, page isolation, mobile safe area, settings, account menu */
 
 /* Desktop sidebar: permanently expanded */
