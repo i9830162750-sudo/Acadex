@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
 const path = require('path');
+const fs = require('fs');
 require('dotenv').config( {
   path: '.env.local'
 });
@@ -20,6 +21,30 @@ app.use(cors());
 app.use(express.json( {
   limit: '25mb'
 }));
+const ACADEX_MOBILE_NAV_FIX = `
+<style id="acadex-mobile-nav-safe-area-fix">
+@media (max-width:600px){
+  .mobile-nav{
+    height:calc(68px + env(safe-area-inset-bottom))!important;
+    padding-bottom:calc(7px + env(safe-area-inset-bottom))!important;
+  }
+  .content-scroll{
+    padding-bottom:calc(140px + env(safe-area-inset-bottom))!important;
+    scroll-padding-bottom:calc(140px + env(safe-area-inset-bottom))!important;
+  }
+}
+</style>`;
+
+app.get('/', (req,res) => {
+  try {
+    const file = path.join(__dirname, 'public', 'index.html');
+    const html = fs.readFileSync(file, 'utf8');
+    res.type('html').send(html.includes('</head>') ? html.replace('</head>', ACADEX_MOBILE_NAV_FIX + '</head>') : html);
+  } catch (_) {
+    res.status(500).send('Acadex frontend is unavailable.');
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 function makeToken() {
   return crypto.randomBytes(32).toString('hex');
