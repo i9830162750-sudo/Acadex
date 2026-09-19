@@ -3880,3 +3880,19 @@ window.acadexSetIcon = function(el, name, preserveLabel=false) {
 </script>
 
 </body></html>
+
+/* FINAL MOBILE NAV SPACE FIX — nav is fixed, so the app shell must reserve its full height. */
+@media(max-width:600px){
+  .main{
+    min-height:0!important;
+    padding-bottom:calc(68px + env(safe-area-inset-bottom))!important;
+    overflow:hidden!important;
+  }
+  .content-scroll{
+    min-height:0!important;
+    overflow-y:auto!important;
+  }
+  .action-bar{
+    margin-bottom:0!important;
+  }
+}
