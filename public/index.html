@@ -3896,3 +3896,14 @@ window.acadexSetIcon = function(el, name, preserveLabel=false) {
     margin-bottom:0!important;
   }
 }
+
+/* MOBILE: lift the whole page above the fixed bottom navigation. */
+@media(max-width:600px){
+  .main{
+    height:calc(100dvh - 68px - env(safe-area-inset-bottom))!important;
+    max-height:calc(100dvh - 68px - env(safe-area-inset-bottom))!important;
+    flex:0 0 calc(100dvh - 68px - env(safe-area-inset-bottom))!important;
+    padding-bottom:0!important;
+  }
+  .content-scroll{height:100%!important;max-height:100%!important;}
+}
