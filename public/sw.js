@@ -1,8 +1,5 @@
-const CACHE_NAME = 'acadex-shell-v1';
-const APP_SHELL = [
-  '/',
-  '/manifest.json'
-];
+const CACHE_NAME = 'acadex-shell-v2';
+const APP_SHELL = ['/', '/manifest.json'];
 
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -25,13 +22,23 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
 
+  const url = new URL(event.request.url);
+
+  // Never cache API/database responses; keep exam data live.
+  if (url.pathname.startsWith('/api/')) return;
+
+  // Only handle same-origin app resources.
+  if (url.origin !== self.location.origin) return;
+
   event.respondWith(
     fetch(event.request)
       .then(response => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+        }
         return response;
       })
-      .catch(() => caches.match(event.request))
+      .catch(() => caches.match(event.request).then(cached => cached || caches.match('/')))
   );
 });
