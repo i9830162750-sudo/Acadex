@@ -241,6 +241,84 @@ app.get('/api/student/results', async(req,res)=>{ try{const u=await requireRole(
 app.get('/api/student/results/:id', async(req,res)=>{ try{const u=await requireRole(req,res,'student');if(!u)return; const {rows}=await pool.query(`SELECT s.id,s.exam_id,e.title,s.score,s.total,s.percentage,s.answers_json,s.results_json,s.submitted_at FROM exam_submissions s JOIN exams e ON e.id=s.exam_id WHERE s.id=$1 AND s.student_user_id=$2`,[req.params.id,u.id]); if(!rows[0])return res.status(404).json({error:'Result not found.'}); const r=rows[0]; res.json({submissionId:r.id,examId:r.exam_id,examTitle:r.title,score:r.score,total:r.total,percentage:Number(r.percentage),answers:r.answers_json,results:r.results_json,submittedAt:Number(r.submitted_at)}); }catch(err){console.error(err);res.status(500).json({error:'Could not load result.'});} });
 app.get('/api/student/teachers', async(req,res)=>{ try{const u=await requireRole(req,res,'student');if(!u)return; const {rows}=await pool.query(`SELECT DISTINCT t.id,t.email,t.display_name FROM users t JOIN exams e ON e.owner_user_id=t.id JOIN exam_submissions s ON s.exam_id=e.id WHERE s.student_user_id=$1 AND t.role='teacher' ORDER BY t.display_name`,[u.id]); res.json({teachers:rows.map(x=>({id:x.id,email:x.email,displayName:x.display_name}))}); }catch(err){console.error(err);res.status(500).json({error:'Could not load teachers.'});} });
 app.get('/api/teacher/students', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows}=await pool.query(`SELECT DISTINCT u.id,u.email,u.display_name,u.student_id FROM users u JOIN exam_submissions s ON s.student_user_id=u.id JOIN exams e ON e.id=s.exam_id WHERE e.owner_user_id=$1 ORDER BY u.display_name`,[u.id]);res.json({students:rows});}catch(err){console.error(err);res.status(500).json({error:'Could not load students.'});} });
+app.get('/api/teacher/students/:studentId', async(req,res)=>{
+  try{
+    const u=await requireRole(req,res,'teacher'); if(!u)return;
+    const studentId=String(req.params.studentId||'').trim();
+    const student=await pool.query(`SELECT DISTINCT u.id,u.email,u.display_name,u.student_id
+      FROM users u
+      JOIN exam_submissions s ON s.student_user_id=u.id
+      JOIN exams e ON e.id=s.exam_id
+      WHERE u.id=$1 AND e.owner_user_id=$2
+      LIMIT 1`,[studentId,u.id]);
+    const st=student.rows[0];
+    if(!st)return res.status(404).json({error:'Student not found.'});
+    const {rows}=await pool.query(`SELECT s.id,s.exam_id,e.title,s.score,s.total,s.percentage,s.submitted_at
+      FROM exam_submissions s
+      JOIN exams e ON e.id=s.exam_id
+      WHERE s.student_user_id=$1 AND e.owner_user_id=$2
+      ORDER BY s.submitted_at DESC`,[studentId,u.id]);
+    const results=rows.map(x=>({...x,score:Number(x.score),total:Number(x.total),percentage:Number(x.percentage),submittedAt:Number(x.submitted_at)}));
+    const average=results.length ? Number((results.reduce((sum,x)=>sum+Number(x.percentage||0),0)/results.length).toFixed(2)) : 0;
+    res.json({
+      student:{id:st.id,email:st.email,displayName:st.display_name,studentId:st.student_id},
+      averageScore:average,
+      examsTaken:results.length,
+      results
+    });
+  }catch(err){console.error(err);res.status(500).json({error:'Could not load student.'});}
+});
+app.get('/api/teacher/students/:studentId/results/:submissionId', async(req,res)=>{
+  try{
+    const u=await requireRole(req,res,'teacher'); if(!u)return;
+    const {rows}=await pool.query(`SELECT s.id,s.student_id,s.student_name,s.score,s.total,s.percentage,s.answers_json,s.results_json,s.submitted_at,
+      e.id AS exam_id,e.title,e.owner_user_id,u.email AS student_email,u.display_name AS student_display_name
+      FROM exam_submissions s
+      JOIN exams e ON e.id=s.exam_id
+      JOIN users u ON u.id=s.student_user_id
+      WHERE s.id=$1 AND s.student_user_id=$2 AND e.owner_user_id=$3`,[req.params.submissionId,req.params.studentId,u.id]);
+    const r=rows[0];
+    if(!r)return res.status(404).json({error:'Result not found.'});
+    res.json({
+      submissionId:r.id,examId:r.exam_id,examTitle:r.title,
+      studentId:r.student_id,studentName:r.student_name,studentEmail:r.student_email,
+      score:Number(r.score),total:Number(r.total),percentage:Number(r.percentage),
+      answers:r.answers_json,results:r.results_json,submittedAt:Number(r.submitted_at)
+    });
+  }catch(err){console.error(err);res.status(500).json({error:'Could not load result.'});}
+});
+app.post('/api/teacher/students/:studentId/results/upload', async(req,res)=>{
+  try{
+    const u=await requireRole(req,res,'teacher'); if(!u)return;
+    const studentUserId=String(req.params.studentId||'').trim();
+    const body=req.body||{};
+    const examId=String(body.examId||'').trim();
+    if(!examId)return res.status(400).json({error:'examId is required.'});
+    const examQ=await pool.query('SELECT id,title,type,owner_user_id FROM exams WHERE id=$1 AND owner_user_id=$2',[examId,u.id]);
+    const exam=examQ.rows[0];
+    if(!exam)return res.status(404).json({error:'Exam not found.'});
+    const studentQ=await pool.query('SELECT id,display_name,email,student_id FROM users WHERE id=$1 AND role=$2',[studentUserId,'student']);
+    const student=studentQ.rows[0];
+    if(!student)return res.status(404).json({error:'Student not found.'});
+    const score=Number(body.score), total=Number(body.total);
+    if(!Number.isFinite(score)||!Number.isFinite(total)||total<=0||score<0||score>total)return res.status(400).json({error:'score and total must be valid.'});
+    const percentage=Number.isFinite(Number(body.percentage))?Number(body.percentage):Number(((score/total)*100).toFixed(2));
+    const answers=body.answers&&typeof body.answers==='object'?body.answers:{};
+    const results=Array.isArray(body.results)?body.results:[];
+    const submittedAt=Number.isFinite(Number(body.submittedAt))?Number(body.submittedAt):Date.now();
+    const sessionToken='manual_'+crypto.randomBytes(24).toString('hex');
+    const sessionCreated=Date.now();
+    await pool.query(`INSERT INTO exam_sessions(token,exam_id,started_at,end_at,created_at,finished_at,student_id,student_name,student_user_id)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [sessionToken,exam.id,sessionCreated,sessionCreated,sessionCreated,submittedAt,student.student_id||'',student.display_name,student.id]);
+    const submissionId='sub_'+crypto.randomBytes(12).toString('hex');
+    await pool.query(`INSERT INTO exam_submissions(id,exam_id,session_token,student_id,student_name,answers_json,results_json,score,total,percentage,submitted_at,student_user_id)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [submissionId,exam.id,sessionToken,student.student_id||'',student.display_name,JSON.stringify(answers),JSON.stringify(results),Math.round(score),Math.round(total),percentage,submittedAt,student.id]);
+    res.status(201).json({ok:true,submissionId});
+  }catch(err){console.error(err);res.status(500).json({error:'Could not upload result.'});}
+});
+
 
 
 app.get('/ping', (req, res) => res.json({ok:true, ts:Date.now()}));
