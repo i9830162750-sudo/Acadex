@@ -293,40 +293,6 @@ app.get('/api/teacher/students/:studentId/results/:submissionId', async(req,res)
     });
   }catch(err){console.error(err);res.status(500).json({error:'Could not load result.'});}
 });
-app.post('/api/teacher/students/:studentId/results/upload', async(req,res)=>{
-  try{
-    const u=await requireRole(req,res,'teacher'); if(!u)return;
-    const studentUserId=String(req.params.studentId||'').trim();
-    const body=req.body||{};
-    const examId=String(body.examId||'').trim();
-    if(!examId)return res.status(400).json({error:'examId is required.'});
-    const examQ=await pool.query('SELECT id,title,type,owner_user_id FROM exams WHERE id=$1 AND owner_user_id=$2',[examId,u.id]);
-    const exam=examQ.rows[0];
-    if(!exam)return res.status(404).json({error:'Exam not found.'});
-    const studentQ=await pool.query('SELECT id,display_name,email,student_id FROM users WHERE id=$1 AND role=$2',[studentUserId,'student']);
-    const student=studentQ.rows[0];
-    if(!student)return res.status(404).json({error:'Student not found.'});
-    const score=Number(body.score), total=Number(body.total);
-    if(!Number.isFinite(score)||!Number.isFinite(total)||total<=0||score<0||score>total)return res.status(400).json({error:'score and total must be valid.'});
-    const percentage=Number.isFinite(Number(body.percentage))?Number(body.percentage):Number(((score/total)*100).toFixed(2));
-    const answers=body.answers&&typeof body.answers==='object'?body.answers:{};
-    const results=Array.isArray(body.results)?body.results:[];
-    const submittedAt=Number.isFinite(Number(body.submittedAt))?Number(body.submittedAt):Date.now();
-    const sessionToken='manual_'+crypto.randomBytes(24).toString('hex');
-    const sessionCreated=Date.now();
-    await pool.query(`INSERT INTO exam_sessions(token,exam_id,started_at,end_at,created_at,finished_at,student_id,student_name,student_user_id)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [sessionToken,exam.id,sessionCreated,sessionCreated,sessionCreated,submittedAt,student.student_id||'',student.display_name,student.id]);
-    const submissionId='sub_'+crypto.randomBytes(12).toString('hex');
-    await pool.query(`INSERT INTO exam_submissions(id,exam_id,session_token,student_id,student_name,answers_json,results_json,score,total,percentage,submitted_at,student_user_id)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [submissionId,exam.id,sessionToken,student.student_id||'',student.display_name,JSON.stringify(answers),JSON.stringify(results),Math.round(score),Math.round(total),percentage,submittedAt,student.id]);
-    res.status(201).json({ok:true,submissionId});
-  }catch(err){console.error(err);res.status(500).json({error:'Could not upload result.'});}
-});
-
-
-
 app.get('/ping', (req, res) => res.json({ok:true, ts:Date.now()}));
 
 app.post('/exam/create', async(req, res) => {
