@@ -1,0 +1,11 @@
+{
+  "name": "Acadex — Exam Platform",
+  "short_name": "Acadex",
+  "description": "Acadex exam platform",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "orientation": "portrait-primary",
+  "background_color": "#0e0f13",
+  "theme_color": "#0e0f13"
+}
