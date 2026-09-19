@@ -3910,3 +3910,8 @@ window.acadexSetIcon = function(el, name, preserveLabel=false) {
 
 /* DEBUG: temporarily hide mobile navigation to isolate viewport/content overlap. */
 @media(max-width:600px){.mobile-nav{display:none!important;}.mobile-create-exam-fab{bottom:16px!important;}}
+
+/* DEBUG ONLY: hide the mobile navigation visually without removing its markup/JS. */
+@media(max-width:600px){
+  .mobile-nav{display:none!important;}
+}
