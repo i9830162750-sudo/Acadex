@@ -255,12 +255,12 @@ app.get('/api/teacher/students/:studentId', async(req,res)=>{
       LIMIT 1`,[studentId,u.id]);
     const st=student.rows[0];
     if(!st)return res.status(404).json({error:'Student not found.'});
-    const {rows}=await pool.query(`SELECT s.id,s.exam_id,e.title,s.score,s.total,s.percentage,s.submitted_at
+    const {rows}=await pool.query(`SELECT s.id,s.public_result_token,s.exam_id,e.title,s.score,s.total,s.percentage,s.submitted_at
       FROM exam_submissions s
       JOIN exams e ON e.id=s.exam_id
       WHERE s.student_user_id=$1 AND e.owner_user_id=$2
       ORDER BY s.submitted_at DESC`,[studentId,u.id]);
-    const results=rows.map(x=>({...x,score:Number(x.score),total:Number(x.total),percentage:Number(x.percentage),submittedAt:Number(x.submitted_at)}));
+    const results=rows.map(x=>({...x,score:Number(x.score),total:Number(x.total),percentage:Number(x.percentage),submittedAt:Number(x.submitted_at),publicResultUrl:x.public_result_token?((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(x.public_result_token)}`):null}));
     const average=results.length ? Number((results.reduce((sum,x)=>sum+Number(x.percentage||0),0)/results.length).toFixed(2)) : 0;
     res.json({
       student:{id:st.id,email:st.email,displayName:st.display_name,studentId:st.student_id},
@@ -273,7 +273,7 @@ app.get('/api/teacher/students/:studentId', async(req,res)=>{
 app.get('/api/teacher/students/:studentId/results/:submissionId', async(req,res)=>{
   try{
     const u=await requireRole(req,res,'teacher'); if(!u)return;
-    const {rows}=await pool.query(`SELECT s.id,s.student_id,s.student_name,s.score,s.total,s.percentage,s.answers_json,s.results_json,s.submitted_at,
+    const {rows}=await pool.query(`SELECT s.id,s.public_result_token,s.student_id,s.student_name,s.score,s.total,s.percentage,s.answers_json,s.results_json,s.submitted_at,
       e.id AS exam_id,e.title,e.owner_user_id,u.email AS student_email,u.display_name AS student_display_name
       FROM exam_submissions s
       JOIN exams e ON e.id=s.exam_id
@@ -282,7 +282,7 @@ app.get('/api/teacher/students/:studentId/results/:submissionId', async(req,res)
     const r=rows[0];
     if(!r)return res.status(404).json({error:'Result not found.'});
     res.json({
-      submissionId:r.id,examId:r.exam_id,examTitle:r.title,
+      submissionId:r.id,publicResultUrl:r.public_result_token?((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(r.public_result_token)}`):null,examId:r.exam_id,examTitle:r.title,
       studentId:r.student_id,studentName:r.student_name,studentEmail:r.student_email,
       score:Number(r.score),total:Number(r.total),percentage:Number(r.percentage),
       answers:r.answers_json,results:r.results_json,submittedAt:Number(r.submitted_at)
@@ -501,9 +501,10 @@ app.get('/result/:publicToken', async(req, res) => {
   try{
     const {rows}=await pool.query(`
       SELECT s.id,s.student_id,s.student_name,s.score,s.total,s.percentage,s.results_json,s.submitted_at,
-             e.title AS exam_title
+             u.email AS student_email,e.title AS exam_title
       FROM exam_submissions s
       JOIN exams e ON e.id=s.exam_id
+      LEFT JOIN users u ON u.id=s.student_user_id
       WHERE s.public_result_token=$1
       LIMIT 1
     `,[req.params.publicToken]);
@@ -514,7 +515,7 @@ app.get('/result/:publicToken', async(req, res) => {
       const cls=q.correct?'correct':'wrong';
       return '<article class="q '+cls+'"><div class="status">'+(q.correct?'✓ CORRECT':'✕ INCORRECT')+'</div><h3>'+escapeHtml(q.questionNumber||i+1)+'. '+escapeHtml(q.question||'Question')+'</h3><p><b>Student answered:</b> '+escapeHtml(q.yourAnswer||'Unanswered')+'</p><p><b>Correct answer:</b> '+escapeHtml(q.correctAnswer||'—')+'</p></article>';
     }).join('');
-    const emailRow=s.student_id?'<div><span>Student ID</span><strong>'+escapeHtml(s.student_id)+'</strong></div>':'';
+    const emailRow='<div><span>Student ID</span><strong>'+escapeHtml(s.student_id||'—')+'</strong></div><div><span>Email</span><strong>'+escapeHtml(s.student_email||'—')+'</strong></div>';
     res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Result — ${escapeHtml(s.exam_title)}</title>
 <style>
 :root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#171615;background:#f2f1ef}*{box-sizing:border-box}body{margin:0;padding:28px}.wrap{max-width:900px;margin:0 auto}.head,.q{background:#fff;border:1px solid #ddd;border-radius:16px;padding:22px;margin-bottom:14px;box-shadow:0 6px 24px #00000008}.head h1{margin:0 0 8px;font-size:28px}.muted{color:#666}.meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:18px}.meta div{background:#f7f7f7;border-radius:10px;padding:12px}.meta span{display:block;color:#777;font-size:12px}.meta strong{display:block;margin-top:4px}.score{font-size:42px;font-weight:900;margin-top:12px}.q.correct{border-left:5px solid #18864b}.q.wrong{border-left:5px solid #c43d3d}.status{font-weight:800;margin-bottom:8px}.correct .status{color:#18864b}.wrong .status{color:#c43d3d}.q h3{margin:0 0 12px;line-height:1.4}.q p{line-height:1.5}.footer{color:#777;font-size:12px;margin-top:18px}@media(max-width:650px){body{padding:12px}.meta{grid-template-columns:1fr}.score{font-size:34px}}
