@@ -2574,6 +2574,9 @@ body.student-role .student-only-nav{display:flex!important;}
 .account-menu-actions button .acadex-svg-icon{width:18px!important;height:18px!important;min-width:18px!important;min-height:18px!important;max-width:18px!important;max-height:18px!important;display:block!important;flex:0 0 18px!important;overflow:visible!important;}
 .account-menu-actions button [data-icon-label]{display:inline!important;line-height:1!important;}
 </style>
+<style id="acadex-debug-hide-mobile-nav">
+@media(max-width:600px){.mobile-nav{display:none!important;}}
+</style>
 </head><body>
 <header class="exam-header"><div class="exam-title">${escapeHtmlForGenerated(title)}</div><div class="timer" id="timer">--:--</div><div></div></header>
 <main class="wrap">
@@ -3910,8 +3913,3 @@ window.acadexSetIcon = function(el, name, preserveLabel=false) {
 
 /* DEBUG: temporarily hide mobile navigation to isolate viewport/content overlap. */
 @media(max-width:600px){.mobile-nav{display:none!important;}.mobile-create-exam-fab{bottom:16px!important;}}
-
-/* DEBUG ONLY: hide the mobile navigation visually without removing its markup/JS. */
-@media(max-width:600px){
-  .mobile-nav{display:none!important;}
-}
