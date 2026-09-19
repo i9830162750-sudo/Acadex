@@ -1132,7 +1132,6 @@ body.student-role .student-only-nav{display:flex!important;}
 
 <button type="button" class="mobile-create-exam-fab teacher-only-mobile" id="mobileCreateExamFab" aria-label="Create exam" title="Create exam">+</button>
 
-<!-- MOBILE NAV DEBUG DISABLED
 <nav class="mobile-nav" aria-label="Acadex mobile navigation">
   <button type="button" class="active" data-app-view="home"><span class="mobile-nav-icon">⌂</span>Home</button>
   <button type="button" data-app-view="workspace"><span class="mobile-nav-icon">▦</span>Exams</button>
@@ -1140,7 +1139,6 @@ body.student-role .student-only-nav{display:flex!important;}
   <button type="button" data-app-view="teachers" class="student-only-mobile"><span class="mobile-nav-icon">♙</span>Teachers</button>
   <button type="button" data-app-view="settings"><span class="mobile-nav-icon">⚙</span>Settings</button>
 </nav>
-END MOBILE NAV DEBUG DISABLED -->
 
 <div class="account-overlay" id="accountOverlay" aria-hidden="true">
   <div class="account-modal">
@@ -2576,8 +2574,12 @@ body.student-role .student-only-nav{display:flex!important;}
 .account-menu-actions button .acadex-svg-icon{width:18px!important;height:18px!important;min-width:18px!important;min-height:18px!important;max-width:18px!important;max-height:18px!important;display:block!important;flex:0 0 18px!important;overflow:visible!important;}
 .account-menu-actions button [data-icon-label]{display:inline!important;line-height:1!important;}
 </style>
-<style id="acadex-debug-disable-mobile-nav">
-@media(max-width:600px){.mobile-nav{display:none!important;visibility:hidden!important;pointer-events:none!important;}}
+<style id="acadex-mobile-nav-space-final">
+@media(max-width:600px){
+  .content-scroll{
+    padding-bottom:calc(68px + env(safe-area-inset-bottom))!important;
+  }
+}
 </style>
 </head><body>
 <header class="exam-header"><div class="exam-title">${escapeHtmlForGenerated(title)}</div><div class="timer" id="timer">--:--</div><div></div></header>
