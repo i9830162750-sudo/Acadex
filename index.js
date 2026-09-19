@@ -279,10 +279,14 @@ app.get('/api/teacher/students/:studentId/results/:submissionId', async(req,res)
       JOIN exams e ON e.id=s.exam_id
       JOIN users u ON u.id=s.student_user_id
       WHERE s.id=$1 AND s.student_user_id=$2 AND e.owner_user_id=$3`,[req.params.submissionId,req.params.studentId,u.id]);
-    const r=rows[0];
+    let r=rows[0];
     if(!r)return res.status(404).json({error:'Result not found.'});
+    if(!r.public_result_token){
+      r.public_result_token=makeToken();
+      await pool.query('UPDATE exam_submissions SET public_result_token=$1 WHERE id=$2',[r.public_result_token,r.id]);
+    }
     res.json({
-      submissionId:r.id,publicResultUrl:r.public_result_token?((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(r.public_result_token)}`):null,examId:r.exam_id,examTitle:r.title,
+      submissionId:r.id,publicResultUrl:((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(r.public_result_token)}`),examId:r.exam_id,examTitle:r.title,
       studentId:r.student_id,studentName:r.student_name,studentEmail:r.student_email,
       score:Number(r.score),total:Number(r.total),percentage:Number(r.percentage),
       answers:r.answers_json,results:r.results_json,submittedAt:Number(r.submitted_at)
