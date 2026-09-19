@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
+const path = require('path');
 require('dotenv').config( {
   path: '.env.local'
 });
@@ -19,6 +20,7 @@ app.use(cors());
 app.use(express.json( {
   limit: '25mb'
 }));
+app.use(express.static(path.join(__dirname, 'public')));
 function makeToken() {
   return crypto.randomBytes(32).toString('hex');
 }
