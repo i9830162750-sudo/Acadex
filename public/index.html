@@ -930,7 +930,7 @@ body.student-role .student-only-nav{display:flex!important;}
                 <p id="homePrimaryText">Build a PDF or question-template exam and publish it when you're ready.</p>
                 <button class="home-action" type="button" id="homePrimaryBtn">＋ Create an exam</button>
               </div>
-              <div class="home-card">
+              <div class="home-card home-secondary-card" id="homeSecondaryCard">
                 <h3 id="homeSecondaryTitle">Your account</h3>
                 <p id="homeSecondaryText">Sign in to save exams and keep your teacher or student workspace connected.</p>
                 <button class="home-action" type="button" id="homeSecondaryBtn">Sign in</button>
@@ -3941,3 +3941,37 @@ window.acadexSetIcon = function(el, name, preserveLabel=false) {
 
 </body></html>
 
+
+
+<style id="acadex-mobile-layout-final">
+@media(max-width:600px){
+  /* Dashboard: remove the teacher workspace/account card. */
+  body.teacher-role #homeSecondaryCard{display:none!important;}
+  
+  /* Create Exam: footer sits directly above the nav; neither is an overlay. */
+  .main{min-height:100dvh!important;}
+  .content-scroll{flex:1 1 auto!important;min-height:0!important;padding-bottom:24px!important;}
+  .action-bar{
+    position:static!important;
+    inset:auto!important;
+    bottom:auto!important;
+    margin:0!important;
+    padding:12px 16px!important;
+    flex:0 0 auto!important;
+    width:100%!important;
+    box-sizing:border-box!important;
+    z-index:auto!important;
+  }
+  .mobile-nav{
+    position:static!important;
+    inset:auto!important;
+    width:100%!important;
+    height:68px!important;
+    min-height:68px!important;
+    margin:0!important;
+    flex:0 0 68px!important;
+    box-sizing:border-box!important;
+    z-index:auto!important;
+  }
+}
+</style>
