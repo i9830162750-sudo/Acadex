@@ -3907,3 +3907,6 @@ window.acadexSetIcon = function(el, name, preserveLabel=false) {
   }
   .content-scroll{height:100%!important;max-height:100%!important;}
 }
+
+/* DEBUG: temporarily hide mobile navigation to isolate viewport/content overlap. */
+@media(max-width:600px){.mobile-nav{display:none!important;}.mobile-create-exam-fab{bottom:16px!important;}}
