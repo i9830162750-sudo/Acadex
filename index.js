@@ -107,6 +107,8 @@ async function initDatabase(){
       student_user_id TEXT REFERENCES users(id) ON DELETE SET NULL
     );
     ALTER TABLE exam_submissions ADD COLUMN IF NOT EXISTS student_user_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE exam_submissions ADD COLUMN IF NOT EXISTS public_result_token TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_submissions_public_result_token ON exam_submissions(public_result_token) WHERE public_result_token IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_exam_submissions_exam ON exam_submissions(exam_id);
     CREATE INDEX IF NOT EXISTS idx_exam_submissions_student ON exam_submissions(exam_id, student_id);
   `);
@@ -234,9 +236,9 @@ app.delete('/api/teacher/exams/:id', async(req,res)=>{
     res.status(500).json({error:'Could not delete exam.'});
   }
 });
-app.get('/api/teacher/exams/:id/results', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows:er}=await pool.query('SELECT id,title FROM exams WHERE id=$1 AND owner_user_id=$2',[req.params.id,u.id]);if(!er[0])return res.status(404).json({error:'Exam not found.'}); const {rows}=await pool.query(`SELECT s.id,s.student_id,s.student_name,s.student_user_id,s.score,s.total,s.percentage,s.submitted_at FROM exam_submissions s WHERE s.exam_id=$1 ORDER BY s.submitted_at DESC`,[req.params.id]); res.json({exam:er[0],results:rows.map(x=>({...x,percentage:Number(x.percentage),submittedAt:Number(x.submitted_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load results.'});} });
-app.get('/api/teacher/submissions/:id', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows}=await pool.query(`SELECT s.id,s.student_id,s.student_name,s.score,s.total,s.percentage,s.answers_json,s.results_json,s.submitted_at,e.id AS exam_id,e.title FROM exam_submissions s JOIN exams e ON e.id=s.exam_id WHERE s.id=$1 AND e.owner_user_id=$2`,[req.params.id,u.id]);if(!rows[0])return res.status(404).json({error:'Result not found.'});const r=rows[0];res.json({submissionId:r.id,examId:r.exam_id,examTitle:r.title,studentId:r.student_id,studentName:r.student_name,score:r.score,total:r.total,percentage:Number(r.percentage),answers:r.answers_json,results:r.results_json,submittedAt:Number(r.submitted_at)});}catch(err){console.error(err);res.status(500).json({error:'Could not load result.'});} });
-app.get('/api/student/results', async(req,res)=>{ try{const u=await requireRole(req,res,'student');if(!u)return; const {rows}=await pool.query(`SELECT s.id,s.exam_id,e.title,s.score,s.total,s.percentage,s.submitted_at FROM exam_submissions s JOIN exams e ON e.id=s.exam_id WHERE s.student_user_id=$1 ORDER BY s.submitted_at DESC`,[u.id]);res.json({results:rows.map(x=>({...x,percentage:Number(x.percentage),submittedAt:Number(x.submitted_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load results.'});} });
+app.get('/api/teacher/exams/:id/results', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows:er}=await pool.query('SELECT id,title FROM exams WHERE id=$1 AND owner_user_id=$2',[req.params.id,u.id]);if(!er[0])return res.status(404).json({error:'Exam not found.'}); const {rows}=await pool.query(`SELECT s.id,s.public_result_token,s.student_id,s.student_name,s.student_user_id,s.score,s.total,s.percentage,s.submitted_at FROM exam_submissions s WHERE s.exam_id=$1 ORDER BY s.submitted_at DESC`,[req.params.id]); res.json({exam:er[0],results:rows.map(x=>({...x,publicResultToken:x.public_result_token||null,publicResultUrl:x.public_result_token?((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(x.public_result_token)}`):null,percentage:Number(x.percentage),submittedAt:Number(x.submitted_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load results.'});} });
+app.get('/api/teacher/submissions/:id', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows}=await pool.query(`SELECT s.id,s.public_result_token,s.student_id,s.student_name,s.score,s.total,s.percentage,s.answers_json,s.results_json,s.submitted_at,e.id AS exam_id,e.title FROM exam_submissions s JOIN exams e ON e.id=s.exam_id WHERE s.id=$1 AND e.owner_user_id=$2`,[req.params.id,u.id]);if(!rows[0])return res.status(404).json({error:'Result not found.'});const r=rows[0];res.json({submissionId:r.id,publicResultToken:r.public_result_token||null,publicResultUrl:r.public_result_token?((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(r.public_result_token)}`):null,examId:r.exam_id,examTitle:r.title,studentId:r.student_id,studentName:r.student_name,score:r.score,total:r.total,percentage:Number(r.percentage),answers:r.answers_json,results:r.results_json,submittedAt:Number(r.submitted_at)});}catch(err){console.error(err);res.status(500).json({error:'Could not load result.'});} });
+app.get('/api/student/results', async(req,res)=>{ try{const u=await requireRole(req,res,'student');if(!u)return; const {rows}=await pool.query(`SELECT s.id,s.public_result_token,s.exam_id,e.title,s.score,s.total,s.percentage,s.submitted_at FROM exam_submissions s JOIN exams e ON e.id=s.exam_id WHERE s.student_user_id=$1 ORDER BY s.submitted_at DESC`,[u.id]);res.json({results:rows.map(x=>({...x,publicResultUrl:x.public_result_token?((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(x.public_result_token)}`):null,percentage:Number(x.percentage),submittedAt:Number(x.submitted_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load results.'});} });
 
 app.get('/api/student/results/:id', async(req,res)=>{ try{const u=await requireRole(req,res,'student');if(!u)return; const {rows}=await pool.query(`SELECT s.id,s.exam_id,e.title,s.score,s.total,s.percentage,s.answers_json,s.results_json,s.submitted_at FROM exam_submissions s JOIN exams e ON e.id=s.exam_id WHERE s.id=$1 AND s.student_user_id=$2`,[req.params.id,u.id]); if(!rows[0])return res.status(404).json({error:'Result not found.'}); const r=rows[0]; res.json({submissionId:r.id,examId:r.exam_id,examTitle:r.title,score:r.score,total:r.total,percentage:Number(r.percentage),answers:r.answers_json,results:r.results_json,submittedAt:Number(r.submitted_at)}); }catch(err){console.error(err);res.status(500).json({error:'Could not load result.'});} });
 app.get('/api/student/teachers', async(req,res)=>{ try{const u=await requireRole(req,res,'student');if(!u)return; const {rows}=await pool.query(`SELECT DISTINCT t.id,t.email,t.display_name FROM users t JOIN exams e ON e.owner_user_id=t.id JOIN exam_submissions s ON s.exam_id=e.id WHERE s.student_user_id=$1 AND t.role='teacher' ORDER BY t.display_name`,[u.id]); res.json({teachers:rows.map(x=>({id:x.id,email:x.email,displayName:x.display_name}))}); }catch(err){console.error(err);res.status(500).json({error:'Could not load teachers.'});} });
@@ -463,10 +465,10 @@ app.post('/api/exam/:id/finish', async(req, res) => {
     if(!authUser || authUser.role!=='student') return res.status(401).json({error:'Student account login is required.'});
     const token=typeof req.body?.sessionToken === 'string'?req.body.sessionToken.trim():'';
     if(!token) return res.status(400).json({error:'sessionToken is required'});
-    const existing=await pool.query(`SELECT id,score,total,percentage,answers_json,results_json,submitted_at FROM exam_submissions WHERE session_token=$1 AND exam_id=$2`,[token,exam.id]);
+    const existing=await pool.query(`SELECT id,public_result_token,score,total,percentage,answers_json,results_json,submitted_at FROM exam_submissions WHERE session_token=$1 AND exam_id=$2`,[token,exam.id]);
     if(existing.rows[0]){
       const s=existing.rows[0];
-      return res.json({submissionId:s.id, score:s.score, total:s.total, percentage:Number(s.percentage), answers:s.answers_json, results:s.results_json, submittedAt:Number(s.submitted_at)});
+      return res.json({submissionId:s.id, publicResultToken:s.public_result_token||null, publicResultUrl:s.public_result_token?((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(s.public_result_token)}`):null, score:s.score, total:s.total, percentage:Number(s.percentage), answers:s.answers_json, results:s.results_json, submittedAt:Number(s.submitted_at)});
     }
     const sessionResult=await pool.query(`SELECT token,student_id,student_name,student_user_id,end_at,finished_at FROM exam_sessions WHERE token=$1 AND exam_id=$2`,[token,exam.id]);
     const session=sessionResult.rows[0]; if(!session) return res.status(404).json({error:'Session not found'});
@@ -477,7 +479,8 @@ app.post('/api/exam/:id/finish', async(req, res) => {
     const graded=gradeExam(exam, answers);
     const submittedAt=Date.now();
     const submissionId='sub_'+crypto.randomBytes(12).toString('hex');
-    await pool.query(`INSERT INTO exam_submissions(id,exam_id,session_token,student_id,student_name,answers_json,results_json,score,total,percentage,submitted_at,student_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[submissionId,exam.id,token,session.student_id,session.student_name,JSON.stringify(answers),JSON.stringify(graded.results),graded.score,graded.total,graded.percentage,submittedAt,session.student_user_id||null]);
+    const publicResultToken=makeToken();
+    await pool.query(`INSERT INTO exam_submissions(id,exam_id,session_token,student_id,student_name,answers_json,results_json,score,total,percentage,submitted_at,student_user_id,public_result_token) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,[submissionId,exam.id,token,session.student_id,session.student_name,JSON.stringify(answers),JSON.stringify(graded.results),graded.score,graded.total,graded.percentage,submittedAt,session.student_user_id||null,publicResultToken]);
     await pool.query(`UPDATE exam_sessions SET finished_at=$1 WHERE token=$2`,[submittedAt,token]);
     res.json({submissionId, ...graded, answers, submittedAt});
   }catch(error){console.error('Finish exam error:', error);res.status(500).json({error:'Failed to submit exam'});}
@@ -492,6 +495,31 @@ app.get('/api/exam/:id/result/:token', async(req, res) => {
     if(s.student_user_id && s.student_user_id!==authUser.id) return res.status(403).json({error:'This result belongs to another student account.'});
     res.json({submissionId:s.id, studentId:s.student_id, studentName:s.student_name, answers:s.answers_json, results:s.results_json, score:s.score, total:s.total, percentage:Number(s.percentage), submittedAt:Number(s.submitted_at)});
   }catch(error){console.error(error);res.status(500).json({error:'Failed to load result'});}
+});
+
+app.get('/result/:publicToken', async(req, res) => {
+  try{
+    const {rows}=await pool.query(`
+      SELECT s.id,s.student_id,s.student_name,s.score,s.total,s.percentage,s.results_json,s.submitted_at,
+             e.title AS exam_title
+      FROM exam_submissions s
+      JOIN exams e ON e.id=s.exam_id
+      WHERE s.public_result_token=$1
+      LIMIT 1
+    `,[req.params.publicToken]);
+    const s=rows[0];
+    if(!s) return res.status(404).type('html').send('<h1>Result not found</h1>');
+    const results=Array.isArray(s.results_json)?s.results_json:[];
+    const resultHtml=results.map((q,i)=>{
+      const cls=q.correct?'correct':'wrong';
+      return '<article class="q '+cls+'"><div class="status">'+(q.correct?'✓ CORRECT':'✕ INCORRECT')+'</div><h3>'+escapeHtml(q.questionNumber||i+1)+'. '+escapeHtml(q.question||'Question')+'</h3><p><b>Student answered:</b> '+escapeHtml(q.yourAnswer||'Unanswered')+'</p><p><b>Correct answer:</b> '+escapeHtml(q.correctAnswer||'—')+'</p></article>';
+    }).join('');
+    const emailRow=s.student_id?'<div><span>Student ID</span><strong>'+escapeHtml(s.student_id)+'</strong></div>':'';
+    res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Result — ${escapeHtml(s.exam_title)}</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#171615;background:#f2f1ef}*{box-sizing:border-box}body{margin:0;padding:28px}.wrap{max-width:900px;margin:0 auto}.head,.q{background:#fff;border:1px solid #ddd;border-radius:16px;padding:22px;margin-bottom:14px;box-shadow:0 6px 24px #00000008}.head h1{margin:0 0 8px;font-size:28px}.muted{color:#666}.meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:18px}.meta div{background:#f7f7f7;border-radius:10px;padding:12px}.meta span{display:block;color:#777;font-size:12px}.meta strong{display:block;margin-top:4px}.score{font-size:42px;font-weight:900;margin-top:12px}.q.correct{border-left:5px solid #18864b}.q.wrong{border-left:5px solid #c43d3d}.status{font-weight:800;margin-bottom:8px}.correct .status{color:#18864b}.wrong .status{color:#c43d3d}.q h3{margin:0 0 12px;line-height:1.4}.q p{line-height:1.5}.footer{color:#777;font-size:12px;margin-top:18px}@media(max-width:650px){body{padding:12px}.meta{grid-template-columns:1fr}.score{font-size:34px}}
+</style></head><body><main class="wrap"><section class="head"><h1>${escapeHtml(s.exam_title)}</h1><div class="muted">Shared exam result</div><div class="score">${Number(s.score)||0} / ${Number(s.total)||0}</div><div class="muted">${Number(s.percentage||0).toFixed(1)}% · submitted ${new Date(Number(s.submitted_at)).toLocaleString()}</div><div class="meta"><div><span>Student name</span><strong>${escapeHtml(s.student_name)}</strong></div>${emailRow}</div></section><section>${resultHtml||'<div class="q"><p>No question-level result data is available.</p></div>'}</section><div class="footer">Anyone with this link can view this shared result.</div></main></body></html>`);
+  }catch(err){console.error(err);res.status(500).type('html').send('<h1>Could not load result</h1>');}
 });
 
 app.get('/exam/:id', async(req, res) => {
