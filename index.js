@@ -24,27 +24,69 @@ app.use(express.json( {
 const ACADEX_MOBILE_NAV_FIX = `
 <style id="acadex-mobile-nav-safe-area-fix">
 @media (max-width:600px){
-  .mobile-nav{
-    height:calc(68px + env(safe-area-inset-bottom))!important;
-    padding-bottom:calc(7px + env(safe-area-inset-bottom))!important;
-  }
-  .content-scroll{
-    padding-bottom:calc(140px + env(safe-area-inset-bottom))!important;
-    scroll-padding-bottom:calc(140px + env(safe-area-inset-bottom))!important;
-  }
-  /* Android system navigation bar: keep content clear of the system buttons without adding a visible gap. */
   .app{
     height:100dvh!important;
     min-height:100dvh!important;
-    padding-bottom:env(safe-area-inset-bottom)!important;
+    padding-bottom:0!important;
     box-sizing:border-box!important;
   }
   .main{
     height:100%!important;
     min-height:0!important;
   }
+  .mobile-nav{
+    height:calc(68px + var(--acadex-system-nav-inset, env(safe-area-inset-bottom)))!important;
+    min-height:calc(68px + var(--acadex-system-nav-inset, env(safe-area-inset-bottom)))!important;
+    padding-bottom:calc(7px + var(--acadex-system-nav-inset, env(safe-area-inset-bottom)))!important;
+    box-sizing:border-box!important;
+  }
+  .content-scroll{
+    padding-bottom:calc(140px + var(--acadex-system-nav-inset, env(safe-area-inset-bottom)))!important;
+    scroll-padding-bottom:calc(140px + var(--acadex-system-nav-inset, env(safe-area-inset-bottom)))!important;
+  }
 }
-</style>`;
+</style>
+<script>
+(function(){
+  function updateAcadexSystemNavInset(){
+    if(!window.matchMedia('(max-width:600px)').matches) return;
+    var standalone=window.matchMedia('(display-mode:standalone)').matches || window.navigator.standalone===true;
+    if(!standalone) return;
+
+    var inset=0;
+    try{
+      var probe=document.createElement('div');
+      probe.style.cssText='position:fixed;left:-9999px;bottom:0;width:1px;height:1px;padding-bottom:env(safe-area-inset-bottom);visibility:hidden;pointer-events:none;';
+      document.documentElement.appendChild(probe);
+      inset=parseFloat(getComputedStyle(probe).paddingBottom)||0;
+      probe.remove();
+    }catch(_){}
+
+    /*
+      Android standalone PWAs can report a zero safe-area inset even when
+      gesture/3-button navigation is consuming space at the bottom. In that
+      case, use the difference between the physical screen and the layout
+      viewport as a fallback. This is only applied in standalone mode so
+      normal browser chrome does not get mistaken for the system nav bar.
+    */
+    if(inset<1){
+      var screenH=window.screen&&window.screen.height||0;
+      var viewportH=window.innerHeight||document.documentElement.clientHeight||0;
+      var fallback=screenH-viewportH;
+      if(fallback>0 && fallback<120) inset=fallback;
+    }
+
+    document.documentElement.style.setProperty('--acadex-system-nav-inset',Math.max(0,Math.round(inset))+'px');
+  }
+
+  window.addEventListener('resize',updateAcadexSystemNavInset,{passive:true});
+  window.addEventListener('orientationchange',function(){setTimeout(updateAcadexSystemNavInset,100)},{passive:true});
+  if(window.visualViewport) window.visualViewport.addEventListener('resize',updateAcadexSystemNavInset,{passive:true});
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',updateAcadexSystemNavInset,{once:true});
+  else updateAcadexSystemNavInset();
+})();
+</script>`;
+
 
 app.get('/', (req,res) => {
   try {
