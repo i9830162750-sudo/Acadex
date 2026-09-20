@@ -213,6 +213,26 @@ app.get('/install', (req,res) => {
   }
 });
 
+function sendAcadexUi(req,res,ui){
+  try {
+    const file = path.join(__dirname, 'public', 'index.html');
+    let html = fs.readFileSync(file, 'utf8');
+    const uiClass = ui === 'mobile' ? 'acadex-ui-mobile' : 'acadex-ui-desktop';
+    const uiMeta = '<meta name="acadex-ui" content="'+ui+'">';
+    html = html.replace('</head>', uiMeta + '<style id="acadex-ui-endpoint">'+
+      'html.'+uiClass+', body.'+uiClass+'{min-width:0;}'+
+      'body.'+uiClass+'{overflow-x:hidden;}'+
+      '</style></head>');
+    html = html.replace('<body', '<body class="'+uiClass+'" data-acadex-ui="'+ui+'"');
+    res.type('html').send(html.includes('</head>') ? html.replace('</head>', ACADEX_MOBILE_NAV_FIX + '</head>') : html);
+  } catch (_) {
+    res.status(500).send('Acadex '+ui+' UI is unavailable.');
+  }
+}
+
+app.get('/app/mobile', (req,res) => sendAcadexUi(req,res,'mobile'));
+app.get('/app/desktop', (req,res) => sendAcadexUi(req,res,'desktop'));
+
 app.get('/app/acadex-app-7f3c9e21', (req,res) => {
   try {
     const file = path.join(__dirname, 'public', 'pwa-entry.html');
