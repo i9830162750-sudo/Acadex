@@ -3332,9 +3332,25 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
       if(!r.ok) throw new Error(d.error||'Could not load exam results');
       const rows=d.results||[];
       title.textContent=d.exam?.title||'Exam results';
-      summary.textContent=rows.length+' submission'+(rows.length===1?'':'s');
-      list.innerHTML=rows.length ? rows.map(x=>`<div class="attempt-card"><div class="attempt-main"><div class="attempt-name">${escapeHtmlForGenerated(x.student_name||'Unnamed student')}</div><div class="attempt-meta">${escapeHtmlForGenerated(x.student_id||'No Student ID')} · ${x.submitted_at?new Date(Number(x.submitted_at)).toLocaleString():''}</div></div><div class="attempt-score">${Number(x.score)||0}/${Number(x.total)||0} · ${Number(x.percentage||0).toFixed(1)}%</div><button type="button" class="attempt-open" data-submission-id="${escapeHtmlForGenerated(x.id||'')}">View</button></div>`).join('') : '<div class="empty-dash">No students have submitted this exam yet.</div>';
-      list.querySelectorAll('.attempt-open').forEach(btn=>btn.addEventListener('click',()=>openTeacherSubmission(btn.dataset.submissionId)));
+      summary.textContent=rows.length+' submission'+(rows.length===1?'':'s')+' · '+new Set(rows.map(x=>x.student_user_id||x.student_id||x.student_name)).size+' student'+(new Set(rows.map(x=>x.student_user_id||x.student_id||x.student_name)).size===1?'':'s');
+      const groups=[];
+      const groupMap=new Map();
+      rows.forEach(x=>{const key=String(x.student_user_id||x.student_id||x.student_name||'unknown');let g=groupMap.get(key);if(!g){g={key,student:x.student_name||'Unnamed student',studentId:x.student_id||'No Student ID',rows:[]};groupMap.set(key,g);groups.push(g);}g.rows.push(x);});
+      list.innerHTML=groups.length ? groups.map((g,gi)=>{
+        const gid='attempt-group-'+gi;
+        const latest=g.rows[0];
+        return `<div class="attempt-card" style="display:block">
+          <div class="attempt-main"><div class="attempt-name">${escapeHtmlForGenerated(g.student)}</div><div class="attempt-meta">${escapeHtmlForGenerated(g.studentId)} · ${g.rows.length} attempt${g.rows.length===1?'':'s'}</div></div>
+          <div style="margin-top:10px"><label style="font-size:12px;color:var(--ink-soft);font-weight:800">Attempt</label>
+          <select class="text-input attempt-switcher" data-group="${gid}" style="margin-top:5px">${g.rows.map((x,i)=>`<option value="${escapeHtmlForGenerated(x.id)}">${i+1} · ${Number(x.score)||0}/${Number(x.total)||0} · ${Number(x.percentage||0).toFixed(1)}% · ${x.submitted_at?new Date(Number(x.submitted_at)).toLocaleString():''}</option>`).join('')}</select></div>
+          <div id="${gid}" style="margin-top:10px"></div>
+        </div>`;
+      }).join('') : '<div class="empty-dash">No students have submitted this exam yet.</div>';
+      groups.forEach((g,gi)=>{
+        const gid='attempt-group-'+gi, box=document.getElementById(gid), select=list.querySelector('.attempt-switcher[data-group="'+gid+'"]');
+        const render=()=>{const x=g.rows.find(r=>String(r.id)===String(select?.value))||g.rows[0];if(!box||!x)return;box.innerHTML=`<div class="attempt-main"><div class="attempt-score">${Number(x.score)||0}/${Number(x.total)||0} · ${Number(x.percentage||0).toFixed(1)}%</div><div class="attempt-meta">${x.submitted_at?new Date(Number(x.submitted_at)).toLocaleString():''}</div><button type="button" class="attempt-open" data-submission-id="${escapeHtmlForGenerated(x.id||'')}" style="margin-top:8px">View this attempt</button></div>`;box.querySelector('.attempt-open')?.addEventListener('click',()=>openTeacherSubmission(x.id));};
+        select?.addEventListener('change',render); render();
+      });
     }catch(e){
       list.innerHTML='<div class="empty-dash">Could not load exam results.</div>';
     }
