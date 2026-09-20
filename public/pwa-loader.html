@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0e0f13">
+<title>Acadex</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;background:#0e0f13;color:#eef0f5;font-family:Inter,system-ui,-apple-system,sans-serif}
+body{display:flex;align-items:center;justify-content:center;padding:24px}
+.card{width:min(420px,100%);text-align:center}
+.icon{width:88px;height:88px;border-radius:22px;display:block;margin:0 auto 22px;box-shadow:0 18px 50px #0008}
+h1{margin:0 0 8px;font-size:28px;letter-spacing:-.02em}
+#status{margin:0;color:#a2a6b5;font-size:14px;line-height:1.55}
+.spinner{width:24px;height:24px;border:3px solid #292a35;border-top-color:#8b8df2;border-radius:50%;animation:spin .8s linear infinite;margin:22px auto 0}
+@keyframes spin{to{transform:rotate(360deg)}}
+#install{display:none;margin-top:24px}
+#install button{width:100%;border:0;border-radius:12px;padding:13px 16px;background:#8b8df2;color:#fff;font:800 15px Inter,system-ui,sans-serif}
+.hint{margin-top:12px;color:#777d90;font-size:12px;line-height:1.5}
+</style>
+</head>
+<body>
+<main class="card">
+  <img class="icon" src="/icons/acadex-icon.svg" alt="Acadex">
+  <h1 id="title">Acadex</h1>
+  <p id="status">Starting Acadex…</p>
+  <div class="spinner" id="spinner"></div>
+  <div id="install">
+    <button id="installBtn" type="button">Install Acadex</button>
+    <div class="hint" id="hint">If the button does not appear, use your browser menu and choose “Add to Home screen” or “Install app”.</div>
+  </div>
+</main>
+<script>
+(function(){
+  var standalone=window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone===true;
+  var mobile=window.matchMedia('(max-width:600px)').matches;
+  var status=document.getElementById('status');
+  var title=document.getElementById('title');
+  var spinner=document.getElementById('spinner');
+  var install=document.getElementById('install');
+  var btn=document.getElementById('installBtn');
+  var deferred=null;
+
+  if(!mobile){
+    status.textContent='Opening Acadex…';
+    setTimeout(function(){location.replace('/?acadexBoot=1')},80);
+    return;
+  }
+
+  if(!standalone){
+    title.textContent='Install Acadex';
+    status.textContent='Acadex mobile is available as an installed app. Install it to use the full exam platform without browser UI.';
+    spinner.style.display='none';
+    install.style.display='block';
+    window.addEventListener('beforeinstallprompt',function(e){
+      e.preventDefault();
+      deferred=e;
+    });
+    btn.addEventListener('click',async function(){
+      if(deferred){
+        deferred.prompt();
+        await deferred.userChoice;
+        deferred=null;
+      }else{
+        document.getElementById('hint').textContent='Open your browser menu and choose “Add to Home screen” or “Install app”.';
+      }
+    });
+    return;
+  }
+
+  title.textContent='Waking Acadex…';
+  status.textContent='Connecting to the Acadex server. This can take a moment after Render has been idle.';
+  async function ping(){
+    var controller=new AbortController();
+    var timeout=setTimeout(function(){controller.abort()},8000);
+    try{
+      var r=await fetch('/api/health',{cache:'no-store',signal:controller.signal});
+      if(r.ok){
+        status.textContent='Server is awake. Opening Acadex…';
+        clearTimeout(timeout);
+        setTimeout(function(){location.replace('/?acadexBoot=1')},180);
+        return;
+      }
+    }catch(e){}
+    clearTimeout(timeout);
+    status.textContent='Server is waking up… checking again in 10 seconds.';
+    setTimeout(ping,10000);
+  }
+  ping();
+})();
+</script>
+</body>
+</html>
