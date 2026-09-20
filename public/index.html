@@ -915,7 +915,108 @@ body.student-role .student-only-nav{display:flex!important;}
   }
   @media(min-width:601px){.acadex-install-prompt{display:none!important}}
 </style>
-</head>
+<style id="acadex-desktop-sidebar-progress-fab">
+/* Desktop: compact icon rail that expands when hovered. */
+@media(min-width:601px){
+  .sidebar{
+    width:68px!important;
+    min-width:68px!important;
+    padding:22px 8px!important;
+    overflow-x:hidden!important;
+    transition:width .22s var(--ease),min-width .22s var(--ease),padding .22s var(--ease),box-shadow .22s var(--ease)!important;
+    z-index:5000!important;
+  }
+  .sidebar:hover{
+    width:340px!important;
+    min-width:340px!important;
+    padding:22px 16px!important;
+    box-shadow:10px 0 30px rgba(0,0,0,.18)!important;
+  }
+  .sidebar .brand{justify-content:center;padding-left:0;padding-right:0;transition:justify-content .18s var(--ease)!important;}
+  .sidebar:hover .brand{justify-content:flex-start;padding-left:10px;padding-right:10px;}
+  .sidebar .brand-text,
+  .sidebar .nav-group-label,
+  .sidebar .app-nav-btn>span:not(.app-nav-icon),
+  .sidebar .nav-step:not(.active),
+  .sidebar .server-pill>span:not(.dot){
+    opacity:0!important;
+    visibility:hidden!important;
+    width:0!important;
+    overflow:hidden!important;
+    transition:opacity .12s var(--ease),visibility .12s var(--ease),width .22s var(--ease)!important;
+  }
+  .sidebar:hover .brand-text,
+  .sidebar:hover .nav-group-label,
+  .sidebar:hover .app-nav-btn>span:not(.app-nav-icon),
+  .sidebar:hover .nav-step,
+  .sidebar:hover .server-pill>span:not(.dot){
+    opacity:1!important;
+    visibility:visible!important;
+    width:auto!important;
+  }
+  .sidebar .app-nav{align-items:stretch!important;}
+  .sidebar .app-nav-btn{
+    justify-content:center!important;
+    min-height:40px!important;
+    padding-left:8px!important;
+    padding-right:8px!important;
+    overflow:hidden!important;
+  }
+  .sidebar:hover .app-nav-btn{justify-content:flex-start!important;padding-left:10px!important;padding-right:10px!important;}
+  .sidebar .app-nav-icon{flex:0 0 20px!important;width:20px!important;text-align:center!important;}
+  .sidebar .build-nav{overflow:hidden!important;transition:opacity .15s var(--ease)!important;}
+  .sidebar:not(:hover) .build-nav{opacity:0!important;pointer-events:none!important;height:0!important;margin:0!important;}
+  .sidebar .server-pill{justify-content:center!important;padding-left:7px!important;padding-right:7px!important;overflow:hidden!important;}
+  .sidebar:hover .server-pill{justify-content:flex-start!important;padding-left:11px!important;padding-right:11px!important;}
+  .mobile-create-exam-fab{
+    transition:none!important;
+  }
+  .mobile-create-exam-fab:hover{
+    transform:none!important;
+    border:2px solid #000!important;
+    box-shadow:0 0 0 2px rgba(255,255,255,.12),0 10px 28px rgba(87,91,234,.32)!important;
+  }
+
+  .topbar-heading{display:flex;align-items:center;gap:28px;min-width:0;}
+  .exam-builder-progress{
+    display:none;
+    align-items:center;
+    gap:8px;
+    min-width:0;
+    white-space:nowrap;
+  }
+  body[data-app-view="create"] .exam-builder-progress{display:flex;}
+  .exam-progress-step{display:flex;align-items:center;gap:6px;color:var(--ink-faint);font-size:.7rem;font-weight:700;}
+  .exam-progress-step span{
+    width:23px;height:23px;border-radius:50%;
+    display:grid;place-items:center;
+    border:1px solid var(--line);
+    background:var(--bg-sunken);
+    color:var(--ink-faint);
+    font:700 .68rem 'JetBrains Mono',monospace;
+    transition:all .16s var(--ease);
+  }
+  .exam-progress-step b{font:700 .68rem Inter,sans-serif;}
+  .exam-progress-step.active{color:var(--accent);}
+  .exam-progress-step.active span{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 0 0 3px var(--accent-soft);}
+  .exam-progress-step.done{color:var(--success);}
+  .exam-progress-step.done span{background:var(--success);border-color:var(--success);color:#fff;}
+  .exam-builder-progress>i{
+    display:block;width:42px;height:1px;background:var(--line);
+    position:relative;flex:0 0 42px;
+  }
+  .exam-builder-progress>i::after{
+    content:'';position:absolute;left:0;top:0;height:1px;width:100%;
+    background:var(--success);transform:scaleX(0);transform-origin:left;
+    transition:transform .18s var(--ease);
+  }
+  .exam-progress-step.done+i::after{transform:scaleX(1);}
+}
+@media(max-width:600px){
+  .topbar-heading{min-width:0;}
+  .exam-builder-progress{display:none!important;}
+}
+</style></head>
 <body>
 
 <div class="app">
@@ -933,7 +1034,6 @@ body.student-role .student-only-nav{display:flex!important;}
       <button class="app-nav-btn" type="button" data-app-view="workspace" title="Exams"><span class="app-nav-icon">▦</span><span>Exams</span></button>
       <button class="app-nav-btn teacher-only-nav" type="button" data-app-view="students" title="Students"><span class="app-nav-icon">♙</span><span>Students</span></button>
       <button class="app-nav-btn student-only-nav" type="button" data-app-view="teachers" title="Teachers"><span class="app-nav-icon">♙</span><span>Teachers</span></button>
-      <button class="app-nav-btn teacher-only-nav" type="button" data-app-view="create" title="Create exam"><span class="app-nav-icon">＋</span><span>Create exam</span></button>
       <button class="app-nav-btn" type="button" data-app-view="settings" title="Settings"><span class="app-nav-icon">⚙</span><span>Settings</span></button>
     </nav>
 
@@ -957,9 +1057,22 @@ body.student-role .student-only-nav{display:flex!important;}
   <!-- ══ Main ══ -->
   <div class="main">
     <div class="topbar">
-      <div>
-        <div class="topbar-title" id="topbarTitle">Home</div>
-        <div class="topbar-sub" id="topbarSub"></div>
+      <div class="topbar-heading">
+        <div>
+          <div class="topbar-title" id="topbarTitle">Home</div>
+          <div class="topbar-sub" id="topbarSub"></div>
+        </div>
+        <div class="exam-builder-progress" id="examBuilderProgress" aria-label="Exam creation progress">
+          <div class="exam-progress-step active" data-progress="0"><span>1</span><b>Details</b></div>
+          <i></i>
+          <div class="exam-progress-step" data-progress="1"><span>2</span><b>Type</b></div>
+          <i></i>
+          <div class="exam-progress-step" data-progress="2"><span>3</span><b>Time</b></div>
+          <i></i>
+          <div class="exam-progress-step" data-progress="3"><span>4</span><b>Password</b></div>
+          <i></i>
+          <div class="exam-progress-step" data-progress="4"><span>5</span><b>Delivery</b></div>
+        </div>
       </div>
       <div class="topbar-right">
         <button class="account-btn" id="accountBtn" type="button" aria-label="Account menu"><span class="account-btn-avatar">?</span></button>
@@ -1537,6 +1650,11 @@ body.student-role .student-only-nav{display:flex!important;}
     });
     topbarTitle.textContent = PANEL_META[currentPanel].title;
     topbarSub.textContent   = PANEL_META[currentPanel].sub;
+    document.querySelectorAll('.exam-progress-step').forEach(step => {
+      const n = Number(step.dataset.progress);
+      step.classList.toggle('active', n === currentPanel);
+      step.classList.toggle('done', n < currentPanel);
+    });
     navPrevBtn.style.visibility = currentPanel === 0 ? 'hidden' : 'visible';
     const isLast = currentPanel === TOTAL_PANELS - 1;
     navNextBtn.style.display   = isLast ? 'none' : 'inline-flex';
