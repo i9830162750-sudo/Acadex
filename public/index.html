@@ -1520,7 +1520,7 @@ body.student-role .student-only-nav{display:flex!important;}
           <div class="notice" style="margin-top:14px;">⚠️ Keep this password private and share it only when you're ready for students to begin.</div>
         </section>
 
-        <!-- Panel 4: Delivery -->
+        <!-- Panel 4: Generate -->
         <section class="panel" data-panel="4">
           <div class="panel-head">
             <h2>How should students access this?</h2>
@@ -1567,7 +1567,7 @@ body.student-role .student-only-nav{display:flex!important;}
       <button class="btn btn-ghost" id="navPrevBtn">← Back</button>
       <button class="btn" id="navNextBtn">Continue →</button>
       <button class="generate-btn" id="generateBtn" disabled style="display:none;">
-        <span>Generate Exam Page</span>
+        <span>Generate Exam</span>
         <span class="btn-arrow">→</span>
       </button>
     </div>
@@ -1851,7 +1851,8 @@ body.student-role .student-only-nav{display:flex!important;}
     { title: 'Exam Type',     sub: 'PDF paper or question template' },
     { title: 'Time Limit',    sub: 'How long students get' },
     { title: 'Password',      sub: 'Gate entry for students' },
-    { title: 'Delivery',      sub: 'Create a hosted exam' },
+    { title: 'Generate',      sub: 'Create the hosted exam link' },
+    { title: 'Share',         sub: 'Copy or share the exam link' },
   ];
 
   function goToPanel(i) {
