@@ -1179,11 +1179,13 @@ body.student-role .student-only-nav{display:flex!important;}
               <p style="margin:0 0 16px;font-size:.82rem;color:var(--ink-soft)" id="settingsAccountMeta">Sign in to manage your account.</p>
               <div id="settingsChangePasswordWrap" style="display:none">
                 <div style="margin-bottom:10px;font:700 .78rem Inter,sans-serif;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.08em">Change Password</div>
-                <input id="settingsCurrentPw" type="password" placeholder="Current password" class="account-input" style="margin-bottom:8px">
-                <input id="settingsNewPw" type="password" placeholder="New password (min 6 chars)" class="account-input" style="margin-bottom:8px">
-                <input id="settingsNewPw2" type="password" placeholder="Confirm new password" class="account-input" style="margin-bottom:12px">
-                <button type="button" id="settingsSavePwBtn" style="border:0;border-radius:11px;padding:12px 20px;background:var(--accent);color:var(--accent-ink);font:800 .86rem Inter,sans-serif;cursor:pointer;width:100%">Update password</button>
-                <div id="settingsPwMsg" style="min-height:18px;margin-top:8px;font-size:.8rem"></div>
+                <form id="settingsPwForm" autocomplete="on" onsubmit="return false">
+                  <input id="settingsCurrentPw" type="password" placeholder="Current password" class="account-input" autocomplete="current-password" style="margin-bottom:8px">
+                  <input id="settingsNewPw" type="password" placeholder="New password (min 6 chars)" class="account-input" autocomplete="new-password" style="margin-bottom:8px">
+                  <input id="settingsNewPw2" type="password" placeholder="Confirm new password" class="account-input" autocomplete="new-password" style="margin-bottom:12px">
+                  <button type="submit" id="settingsSavePwBtn" style="border:0;border-radius:11px;padding:12px 20px;background:var(--accent);color:var(--accent-ink);font:800 .86rem Inter,sans-serif;cursor:pointer;width:100%">Update password</button>
+                  <div id="settingsPwMsg" style="min-height:18px;margin-top:8px;font-size:.8rem"></div>
+                </form>
               </div>
               <!-- Storage -->
               <div id="settingsStorageWrap" style="margin-top:18px;display:none">
@@ -3867,7 +3869,7 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
     });
   });
 
-  document.getElementById('settingsSavePwBtn')?.addEventListener('click',async()=>{
+  document.getElementById('settingsPwForm')?.addEventListener('submit',async()=>{
     const btn=document.getElementById('settingsSavePwBtn');
     const msg=document.getElementById('settingsPwMsg');
     const cur=document.getElementById('settingsCurrentPw').value;
@@ -4372,6 +4374,7 @@ button,input,select,textarea{max-width:100%;font:inherit;}
   .home-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));}
 }
 </style>
+
 
 
 
