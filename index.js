@@ -47,6 +47,15 @@ app.get('/', (req,res) => {
   }
 });
 
+app.get('/install', (req,res) => {
+  try {
+    const file = path.join(__dirname, 'public', 'install.html');
+    res.type('html').send(fs.readFileSync(file, 'utf8'));
+  } catch (_) {
+    res.status(500).send('Acadex install page is unavailable.');
+  }
+});
+
 app.get('/app/acadex-app-7f3c9e21', (req,res) => {
   try {
     const file = path.join(__dirname, 'public', 'pwa-entry.html');
