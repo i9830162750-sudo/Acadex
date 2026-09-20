@@ -913,6 +913,27 @@ app.get('/exam/:id', async(req, res) => {
 #app.pdf-mode.pdf-reading .top{opacity:0;transform:translate(-50%,-18px);pointer-events:none}
 #app.pdf-mode.pdf-reading{background:#111}
 #app.pdf-mode.pdf-reading .paper{background:#111}
+/* Custom PDF reader controls: hidden browser scrollbar, visible reader rail. */
+#app.pdf-mode .paper{scrollbar-width:none;-ms-overflow-style:none;position:relative}
+#app.pdf-mode .paper::-webkit-scrollbar{display:none}
+.pdf-reader-rail{position:fixed;right:10px;top:50%;z-index:25;transform:translateY(-50%);width:38px;display:flex;flex-direction:column;align-items:center;gap:8px;opacity:1;transition:opacity .35s ease;pointer-events:none}
+.pdf-page-count{min-width:34px;padding:5px 6px;border-radius:8px;background:rgba(255,255,255,.88);color:#222;font-size:11px;font-weight:800;text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.14);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.pdf-scroll-track{width:5px;height:min(52vh,420px);border-radius:99px;background:rgba(0,0,0,.14);position:relative}
+.pdf-scroll-thumb{position:absolute;left:0;width:100%;min-height:30px;border-radius:99px;background:rgba(30,30,30,.6);transition:top .08s linear}
+.pdf-zoom-controls{display:flex;flex-direction:column;gap:4px;pointer-events:auto}
+.pdf-zoom-btn{width:34px;height:30px;border:1px solid rgba(0,0,0,.1);border-radius:9px;background:rgba(255,255,255,.88);color:#222;font-weight:900;font-size:16px;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.12);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.pdf-zoom-btn:active{transform:scale(.95)}
+#app.pdf-mode.pdf-reading .pdf-reader-rail{opacity:0;pointer-events:none}
+#app.pdf-mode.pdf-reading .pdf-zoom-controls{pointer-events:none}
+#app.pdf-mode.pdf-reading .pdf-page-count{background:rgba(30,30,30,.72);color:#fff}
+#app.pdf-mode.pdf-reading .pdf-scroll-track{background:rgba(255,255,255,.18)}
+#app.pdf-mode.pdf-reading .pdf-scroll-thumb{background:rgba(255,255,255,.72)}
+@media(max-width:650px){
+  .pdf-reader-rail{right:5px;width:31px}
+  .pdf-scroll-track{height:58vh;width:4px}
+  .pdf-page-count{min-width:30px;padding:4px;font-size:10px}
+  .pdf-zoom-btn{width:30px;height:28px;font-size:15px}
+}
 #app.pdf-mode.pdf-reading .top h1{color:#fff}
 #app.pdf-mode.pdf-reading .timer{background:#fff;color:#111}
 @media(max-width:650px){
@@ -1025,8 +1046,45 @@ function renderTemplate(){
 async function submitExam(auto){if(!session)return;clearInterval(timerId);const r=await fetch(API+'/finish', {method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentAuthToken}, body:JSON.stringify({sessionToken:session.sessionToken, answers:session.answers||{}})});const d=await r.json();if(!r.ok){if(!auto)alert(d.error||'Could not submit exam');startTimer();return false}session.finishedAt=d.submittedAt||Date.now();await save({...session, examId:EXAM_ID, finishedAt:session.finishedAt, submissionId:d.submissionId, answers:session.answers||{}});if(examData?.type==='pdf'){ $('pdfSubmitBtn').classList.add('hidden'); $('timer').style.display='none'; $('paper').innerHTML='<div class="review-head"><div style="font-size:24px;font-weight:800">Exam Submitted</div><p>Your PDF exam has been submitted and this attempt is now closed.</p></div>'; return true;}showReview(d);return true}
 function showReview(d){$('timer').style.display='none';let html='<div class="review-head"><div style="font-size:24px;font-weight:800">Exam Complete</div><div class="score">'+d.score+' / '+d.total+'</div><div class="pct">'+d.percentage+'%</div><p>This attempt is now closed. You cannot retake this exam.</p></div>';d.results.forEach(r => {const cls=r.correct?'correct':r.yourAnswer === 'Unanswered'?'unanswered':'wrong';const status=r.correct?'Correct ✓':r.yourAnswer === 'Unanswered'?'Unanswered':'Wrong ✗';html+='<div class="review-item"><div class="status '+cls+'">'+status+' — Question '+r.questionNumber+'</div><div><b>'+esc(r.question)+'</b></div><div class="review-answer"><span class="review-label">Your answer:</span> '+esc(r.yourAnswer)+'</div><div class="review-answer"><span class="review-label">Correct answer:</span> '+esc(r.correctAnswer)+'</div></div>'});$('paper').innerHTML=html}
 function startTimer(){clearInterval(timerId);timerId=setInterval(async() => {const left=Number(session.endAt)-Date.now();$('timer').textContent=fmt(left);if(left<=0){clearInterval(timerId);await submitExam(true)}}, 250);$('timer').textContent=fmt(Number(session.endAt)-Date.now())}
-async function showExam(d){examData=d;$('portal').style.display='none';$('app').style.display='block';$('app').classList.toggle('pdf-mode',d.type==='pdf');$('app').classList.remove('pdf-reading');$('examTitle').textContent=d.title||EXAM_TITLE;$('pdfSubmitBtn').classList.toggle('hidden',d.type!=='pdf');if(d.type==='pdf'){$('pdfSubmitBtn').onclick=()=>submitExam(false);setupPdfReadingMode()}if(d.type === 'template')renderTemplate();else await renderPDF(d.pdfDataUrl);startTimer()}
-async function renderPDF(dataUrl){$('paper').innerHTML='';const pdf=await pdfjsLib.getDocument({data:atob(dataUrl.split(',')[1])}).promise;for(let n=1;n<=pdf.numPages;n++){const page=await pdf.getPage(n), vp=page.getViewport({scale:1.35}), canvas=document.createElement('canvas');canvas.width=vp.width;canvas.height=vp.height;canvas.style.width='100%';canvas.style.height='auto';$('paper').appendChild(canvas);await page.render({canvasContext:canvas.getContext('2d'), viewport:vp}).promise}} 
+async function showExam(d){examData=d;$('portal').style.display='none';$('app').style.display='block';$('app').classList.toggle('pdf-mode',d.type==='pdf');$('app').classList.remove('pdf-reading');document.querySelector('.pdf-reader-rail')?.remove();$('examTitle').textContent=d.title||EXAM_TITLE;$('pdfSubmitBtn').classList.toggle('hidden',d.type!=='pdf');if(d.type==='pdf'){$('pdfSubmitBtn').onclick=()=>submitExam(false);setupPdfReadingMode()}if(d.type === 'template')renderTemplate();else await renderPDF(d.pdfDataUrl);startTimer()}
+async function renderPDF(dataUrl){
+  const paper=$('paper');paper.innerHTML='';
+  const rail=document.createElement('div');rail.className='pdf-reader-rail';
+  rail.innerHTML='<div class="pdf-page-count" id="pdfPageCount">1 / 1</div><div class="pdf-scroll-track"><div class="pdf-scroll-thumb" id="pdfScrollThumb"></div></div><div class="pdf-zoom-controls"><button class="pdf-zoom-btn" id="pdfZoomIn" type="button" aria-label="Zoom in">+</button><button class="pdf-zoom-btn" id="pdfZoomOut" type="button" aria-label="Zoom out">−</button><button class="pdf-zoom-btn" id="pdfZoomReset" type="button" aria-label="Reset zoom">↺</button></div>';
+  document.getElementById('app').appendChild(rail);
+  const pdf=await pdfjsLib.getDocument({data:atob(dataUrl.split(',')[1])}).promise;
+  const canvases=[];
+  let scale=1.35;
+  const renderPages=async()=>{
+    paper.innerHTML='';
+    canvases.length=0;
+    for(let n=1;n<=pdf.numPages;n++){
+      const page=await pdf.getPage(n), vp=page.getViewport({scale});
+      const canvas=document.createElement('canvas');canvas.width=vp.width;canvas.height=vp.height;canvas.style.width=vp.width+'px';canvas.style.maxWidth='none';canvas.style.height='auto';canvas.dataset.page=String(n);
+      paper.appendChild(canvas);canvases.push(canvas);
+      await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+    }
+    updatePdfReaderPosition();
+  };
+  const count=$('pdfPageCount'),thumb=$('pdfScrollThumb');
+  function updatePdfReaderPosition(){
+    const max=paper.scrollHeight-paper.clientHeight;
+    const ratio=max>0?paper.scrollTop/max:0;
+    const pageHeight=paper.scrollHeight/Math.max(pdf.numPages,1);
+    const page=Math.min(pdf.numPages,Math.max(1,Math.floor((paper.scrollTop+paper.clientHeight*.35)/Math.max(pageHeight,1))+1));
+    count.textContent=page+' / '+pdf.numPages;
+    const track=thumb.parentElement;
+    const travel=track.clientHeight-thumb.offsetHeight;
+    thumb.style.top=(travel*ratio)+'px';
+  }
+  paper.addEventListener('scroll',updatePdfReaderPosition,{passive:true});
+  const zoom=(delta)=>{scale=Math.min(3,Math.max(.7,Number((scale+delta).toFixed(2))));renderPages()};
+  $('pdfZoomIn').onclick=()=>zoom(.2); $('pdfZoomOut').onclick=()=>zoom(-.2); $('pdfZoomReset').onclick=()=>{scale=1.35;renderPages()};
+  let pinchStart=0, pinchScale=scale;
+  paper.addEventListener('touchstart',e=>{if(e.touches.length===2)pinchStart=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY),pinchScale=scale},{passive:true});
+  paper.addEventListener('touchmove',e=>{if(e.touches.length===2&&pinchStart){const dist=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);scale=Math.min(3,Math.max(.7,Number((pinchScale*(dist/pinchStart)).toFixed(2))));renderPages()}},{passive:true});
+  await renderPages();
+}
 let pdfReadingTimer=null;
 function setupPdfReadingMode(){
   clearTimeout(pdfReadingTimer);
