@@ -375,17 +375,26 @@ app.get('/api/auth/me', async(req,res)=>{ try{const u=await getAuthUser(req); if
 app.post('/api/auth/change-password', async(req,res)=>{ try{ const u=await getAuthUser(req); if(!u)return res.status(401).json({error:'Not logged in.'}); const current=String(req.body?.currentPassword||''); const next=String(req.body?.newPassword||''); if(!current||!next)return res.status(400).json({error:'Both fields are required.'}); if(next.length<6)return res.status(400).json({error:'New password must be at least 6 characters.'}); const {rows}=await pool.query('SELECT password_hash FROM users WHERE id=$1',[u.id]); if(!rows[0]||!verifyPassword(current,rows[0].password_hash))return res.status(401).json({error:'Current password is incorrect.'}); await pool.query('UPDATE users SET password_hash=$1 WHERE id=$2',[makePasswordHash(next),u.id]); res.json({ok:true}); }catch(err){console.error(err);res.status(500).json({error:'Could not change password.'});} });
 app.get('/api/admin/my-storage', async(req,res)=>{ try{
   const u=await getAuthUser(req); if(!u)return res.status(401).json({error:'Not logged in.'});
+  // Fetch exams with byte sizes - use length() for text columns, cast JSONB to text
   const {rows}=await pool.query(`
     SELECT
       e.id, e.title, e.type, e.created_at,
-      (octet_length(COALESCE(e.pdf_data_url,'')) + octet_length(COALESCE(e.questions_json,'')) + octet_length(e.title) + octet_length(e.student_password))::bigint AS exam_bytes,
+      (
+        length(COALESCE(e.pdf_data_url,'')) +
+        length(COALESCE(e.questions_json::text,'')) +
+        length(COALESCE(e.title,'')) +
+        length(COALESCE(e.student_password,''))
+      )::bigint AS exam_bytes,
       COUNT(s.id)::int AS submission_count,
-      COALESCE(SUM(octet_length(COALESCE(s.answers_json::text,'')) + octet_length(COALESCE(s.results_json::text,'')))::bigint, 0) AS submission_bytes
+      COALESCE(SUM(
+        length(COALESCE(s.answers_json::text,'')) +
+        length(COALESCE(s.results_json::text,''))
+      )::bigint, 0) AS submission_bytes
     FROM exams e
     LEFT JOIN exam_submissions s ON s.exam_id=e.id
     WHERE e.owner_user_id=$1
     GROUP BY e.id
-    ORDER BY (octet_length(COALESCE(e.pdf_data_url,'')) + octet_length(COALESCE(e.questions_json,''))) DESC
+    ORDER BY length(COALESCE(e.pdf_data_url,'')) DESC
   `,[u.id]);
   const totalExamBytes=rows.reduce((a,r)=>a+Number(r.exam_bytes),0);
   const totalSubBytes=rows.reduce((a,r)=>a+Number(r.submission_bytes),0);
@@ -840,6 +849,7 @@ $('showLogin').addEventListener('click',()=>setAccountMode('login'));$('showRegi
 });
 
 initDatabase().then(()=>{const PORT=process.env.PORT||3000;app.listen(PORT,()=>console.log(`Exam backend listening on port ${PORT}`));}).catch(error=>{console.error('Database initialization failed:',error);process.exit(1)});
+
 
 
 
