@@ -1,6 +1,7 @@
 const CACHE = 'acadex-v__BUILD_TS__';
 const STATIC_ASSETS = [
   '/manifest.json',
+  '/pwa-loader.html',
   '/icons/acadex-icon.svg',
   '/icons/acadex-minimal.svg',
   '/icons/acadex-tab.svg',
@@ -11,7 +12,6 @@ self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE).then(c => c.addAll(STATIC_ASSETS).catch(() => {}))
   );
-  // Wait for the page to request activation so updates can be shown cleanly.
 });
 
 self.addEventListener('activate', event => {
@@ -37,7 +37,6 @@ self.addEventListener('fetch', event => {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
   if (url.origin !== self.location.origin) return;
 
-  // Keep live data and third-party resources out of the app cache.
   if (
     url.pathname.startsWith('/api/') ||
     url.hostname.includes('googleapis.com') ||
@@ -50,7 +49,22 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // The document is always network-first.
+  // PWA/browser entry point: show the tiny cached loader first.
+  // The loader decides whether to show the install screen or wake Render.
+  if (
+    event.request.mode === 'navigate' &&
+    (url.pathname === '/' || url.pathname === '/index.html') &&
+    !url.searchParams.has('acadexBoot')
+  ) {
+    event.respondWith(
+      caches.match('/pwa-loader.html').then(loader =>
+        loader || fetch('/pwa-loader.html')
+      )
+    );
+    return;
+  }
+
+  // The actual app boot request is always network-first.
   if (url.pathname === '/' || url.pathname === '/index.html') {
     event.respondWith(
       fetch(event.request)
@@ -63,7 +77,7 @@ self.addEventListener('fetch', event => {
         })
         .catch(() =>
           caches.match('/index.html').then(r =>
-            r || new Response('Offline', {
+            r || new Response('Acadex is temporarily unavailable.', {
               status: 503,
               headers: {'Content-Type': 'text/plain'}
             })
