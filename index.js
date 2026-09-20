@@ -220,6 +220,7 @@ function sendAcadexUi(req,res,ui){
     let html = fs.readFileSync(file, 'utf8');
     const uiClass = ui === 'mobile' ? 'acadex-ui-mobile' : 'acadex-ui-desktop';
     const uiMeta = '<meta name="acadex-ui" content="'+ui+'">';
+    if(ui === 'desktop') html = html.replace('/manifest.json','/manifest-desktop.json');
     html = html.replace('</head>', uiMeta + '<style id="acadex-ui-endpoint">'+
       'html.'+uiClass+', body.'+uiClass+'{min-width:0;}'+
       'body.'+uiClass+'{overflow-x:hidden;}'+
