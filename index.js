@@ -207,7 +207,9 @@ app.get('/', (req,res) => {
     const file = path.join(__dirname, 'public', 'index.html');
     let html = fs.readFileSync(file, 'utf8');
     const bootGate = `
-<style id="acadex-boot-gate">html:not([data-acadex-boot-ready]) body{visibility:hidden!important;}</style>
+<style id="acadex-boot-gate">
+html:not([data-acadex-boot-ready]) body{visibility:hidden!important;}
+</style>
 <script id="acadex-boot-gate-script">
 (function(){
   var standalone=window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true;
@@ -216,10 +218,35 @@ app.get('/', (req,res) => {
     return;
   }
 
-  // Startup must work from the installed PWA cache. Do not ping Render here:
-  // the app shell can open offline, while individual server actions check
-  // connectivity only when they actually need the backend.
-  document.documentElement.setAttribute('data-acadex-boot-ready','1');
+  /*
+    Acadex startup is intentionally gated on the backend being alive.
+    The loading screen stays in place until the server responds successfully.
+    There is no fixed timeout: failed/timeout requests simply retry forever.
+  */
+  var retryDelay=10000;
+  var requestTimeout=12000;
+
+  function checkServer(){
+    var controller = 'AbortController' in window ? new AbortController() : null;
+    var timer = controller ? setTimeout(function(){ controller.abort(); }, requestTimeout) : null;
+    var url='/api/health?boot=' + Date.now();
+
+    fetch(url,{
+      method:'GET',
+      cache:'no-store',
+      credentials:'same-origin',
+      signal:controller ? controller.signal : undefined
+    }).then(function(response){
+      if(timer) clearTimeout(timer);
+      if(!response.ok) throw new Error('Server not ready');
+      document.documentElement.setAttribute('data-acadex-boot-ready','1');
+    }).catch(function(){
+      if(timer) clearTimeout(timer);
+      setTimeout(checkServer,retryDelay);
+    });
+  }
+
+  checkServer();
 })();
 </script>`;
     html = html.replace('</head>', '<meta name="acadex-ui" content="combined"><style id="acadex-ui-endpoint">html,body{min-width:0;}body{overflow-x:hidden;}</style>' + ACADEX_MOBILE_NAV_FIX + bootGate + '</head>');
