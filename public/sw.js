@@ -1,8 +1,6 @@
-const CACHE = 'acadex-v__BUILD_TS__';
+const CACHE = 'acadex-v-20260920-3';
 const STATIC_ASSETS = [
   '/manifest.json',
-  '/app/acadex-app-7f3c9e21',
-  '/install',
   '/icons/acadex-icon.svg',
   '/icons/acadex-minimal.svg',
   '/icons/acadex-tab.svg',
@@ -47,6 +45,12 @@ self.addEventListener('fetch', event => {
     url.hostname.includes('youtube.com') ||
     url.hostname.includes('ytimg.com')
   ) {
+    return;
+  }
+
+  // Never serve the PWA boot/install routes from an old cache.
+  if (url.pathname === '/app/acadex-app-7f3c9e21' || url.pathname === '/install' || url.pathname === '/') {
+    event.respondWith(fetch(event.request));
     return;
   }
 
