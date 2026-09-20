@@ -1104,10 +1104,26 @@ body.student-role .student-only-nav{display:flex!important;}
     width:100%!important;
     min-width:0!important;
     justify-content:flex-start!important;
+    align-items:center!important;
     padding:10px 10px!important;
     margin:0 0 4px!important;
     gap:11px!important;
     overflow:hidden!important;
+    flex-direction:row!important;
+  }
+  /* Lock the icon/text start position during both opening and closing. */
+  .sidebar .app-nav-btn .app-nav-icon{
+    margin-left:0!important;
+    margin-right:0!important;
+  }
+  .sidebar .app-nav-btn>span:not(.app-nav-icon){
+    flex:0 0 auto!important;
+    text-align:left!important;
+  }
+  .sidebar:hover .app-nav-btn,
+  .sidebar:not(:hover) .app-nav-btn{
+    justify-content:flex-start!important;
+    align-items:center!important;
   }
   .sidebar .app-nav-icon{
     flex:0 0 20px!important;
