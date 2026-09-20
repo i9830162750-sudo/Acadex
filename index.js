@@ -216,7 +216,7 @@ app.get('/install', (req,res) => {
 
 function sendAcadexUi(req,res,ui){
   try {
-    const file = path.join(__dirname, 'public', 'index.html');
+    const file = path.join(__dirname, 'public', ui === 'mobile' ? 'mobile.html' : 'desktop.html');
     let html = fs.readFileSync(file, 'utf8');
     const uiClass = ui === 'mobile' ? 'acadex-ui-mobile' : 'acadex-ui-desktop';
     const uiMeta = '<meta name="acadex-ui" content="'+ui+'">';
