@@ -1344,6 +1344,12 @@ body.student-role .student-only-nav{display:flex!important;}
                   <div id="settingsPwMsg" style="min-height:18px;margin-top:8px;font-size:.8rem"></div>
                 </form>
               </div>
+              <div id="settingsDeleteAccountWrap" style="margin-top:22px;padding-top:18px;border-top:1px solid var(--line);display:none">
+                <div style="margin-bottom:8px;font:700 .78rem Inter,sans-serif;color:var(--danger);text-transform:uppercase;letter-spacing:.08em">Danger Zone</div>
+                <p style="margin:0 0 12px;font-size:.82rem;color:var(--ink-soft);line-height:1.5">Delete your Acadex account and its stored data. This permanently removes your account, your exams, your exam submissions, and active sessions.</p>
+                <button type="button" id="settingsDeleteAccountBtn" style="width:100%;border:1px solid var(--danger);background:transparent;color:var(--danger);border-radius:11px;padding:11px 14px;font:800 .84rem Inter,sans-serif;cursor:pointer">Delete account</button>
+                <div id="settingsDeleteAccountMsg" style="min-height:18px;margin-top:8px;font-size:.8rem;color:var(--danger)"></div>
+              </div>
               <!-- Storage -->
               <div id="settingsStorageWrap" style="margin-top:18px;display:none">
                 <div style="margin-bottom:8px;font:700 .78rem Inter,sans-serif;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.08em">Local Cache</div>
@@ -2166,6 +2172,7 @@ body.student-role .student-only-nav{display:flex!important;}
         document.getElementById('settingsChangePasswordWrap').style.display='block';
         document.getElementById('settingsStorageWrap').style.display='block';
         document.getElementById('settingsNeonCard').style.display='block';
+        document.getElementById('settingsDeleteAccountWrap').style.display='block';
         loadSettingsStorage();
         loadSettingsNeonStorage();
       }else{
@@ -2173,6 +2180,7 @@ body.student-role .student-only-nav{display:flex!important;}
         document.getElementById('settingsChangePasswordWrap').style.display='none';
         document.getElementById('settingsStorageWrap').style.display='none';
         document.getElementById('settingsNeonCard').style.display='none';
+        document.getElementById('settingsDeleteAccountWrap').style.display='none';
       }
       // sync theme buttons
       const curTheme=document.documentElement.getAttribute('data-theme-pref')||'system';
@@ -3658,6 +3666,28 @@ Fill the blank template using the MCQ set and return only the completed template
       b.style.background=active?'var(--accent-soft)':'var(--bg-sunken)';
       b.style.color=active?'var(--accent)':'var(--ink-soft)';
     });
+  });
+
+  document.getElementById('settingsDeleteAccountBtn')?.addEventListener('click',async()=>{
+    if(!accountUser)return;
+    if(!confirm('This permanently deletes your Acadex account and all associated data. This cannot be undone. Continue?'))return;
+    const password=prompt('Enter your current password to confirm account deletion:');
+    if(password===null)return;
+    if(!password){showToast('Password is required.','error',3000);return;}
+    const btn=document.getElementById('settingsDeleteAccountBtn');
+    const msg=document.getElementById('settingsDeleteAccountMsg');
+    btn.disabled=true; btn.textContent='Deleting account…'; msg.textContent='';
+    try{
+      const r=await accountFetch('/api/auth/account',{method:'DELETE',body:JSON.stringify({password})});
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok)throw new Error(d.error||'Could not delete the account.');
+      clearAccount();
+      showAppView('home');
+      showToast('Account deleted.','success',3500);
+    }catch(e){
+      msg.textContent=e.message||'Could not delete the account.';
+      btn.disabled=false; btn.textContent='Delete account';
+    }
   });
 
   document.getElementById('settingsPwForm')?.addEventListener('submit',async()=>{
