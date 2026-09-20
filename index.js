@@ -40,15 +40,22 @@ const ACADEX_MOBILE_NAV_FIX = `
     right:0!important;
     top:auto!important;
     bottom:0!important;
-    width:100%!important;
+    width:100vw!important;
     height:68px!important;
     min-height:68px!important;
     padding:7px 0 7px!important;
     margin:0!important;
     box-sizing:border-box!important;
-    z-index:9999!important;
+    z-index:2147483647!important;
     flex:0 0 68px!important;
-    transform:translateY(0)!important;
+    transform:none!important;
+    overflow:visible!important;
+  }
+  .app,.main,.content-scroll{
+    position:relative!important;
+  }
+  .mobile-nav{
+    isolation:isolate!important;
   }
   html{
     --acadex-system-nav-inset:0px!important;
