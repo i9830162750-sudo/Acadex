@@ -380,7 +380,7 @@ app.get('/api/admin/my-storage', async(req,res)=>{ try{
       e.id, e.title, e.type, e.created_at,
       (octet_length(COALESCE(e.pdf_data_url,'')) + octet_length(COALESCE(e.questions_json,'')) + octet_length(e.title) + octet_length(e.student_password))::bigint AS exam_bytes,
       COUNT(s.id)::int AS submission_count,
-      COALESCE(SUM(octet_length(COALESCE(s.answers_json,'')) + octet_length(COALESCE(s.results_json,'')))::bigint, 0) AS submission_bytes
+      COALESCE(SUM(octet_length(COALESCE(s.answers_json::text,'')) + octet_length(COALESCE(s.results_json::text,'')))::bigint, 0) AS submission_bytes
     FROM exams e
     LEFT JOIN exam_submissions s ON s.exam_id=e.id
     WHERE e.owner_user_id=$1
@@ -840,6 +840,7 @@ $('showLogin').addEventListener('click',()=>setAccountMode('login'));$('showRegi
 });
 
 initDatabase().then(()=>{const PORT=process.env.PORT||3000;app.listen(PORT,()=>console.log(`Exam backend listening on port ${PORT}`));}).catch(error=>{console.error('Database initialization failed:',error);process.exit(1)});
+
 
 
 
