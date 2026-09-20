@@ -3434,11 +3434,21 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
       const d=await r.json();
       if(!r.ok) throw new Error(d.error||'Could not load results');
       const results=d.results||[];
-      studentResults.innerHTML=results.length ? results.map(x=>`<div class="student-result-card" role="button" tabindex="0" data-student-result-id="${escapeHtmlForGenerated(x.id||'')}"><div class="student-result-top"><div class="student-result-title">${escapeHtmlForGenerated(x.title||'Exam')}</div><div class="student-result-score">${x.score}/${x.total}</div></div><div class="student-result-meta">${Number(x.percentage||0).toFixed(1)}% · ${x.submittedAt?new Date(Number(x.submittedAt)).toLocaleString():''}</div><div class="student-result-note">Click to review every question, your answer, and the correct answer.</div></div>`).join('') : '<div class="empty-dash">No submitted exams yet.</div>';
-      studentResults.querySelectorAll('[data-student-result-id]').forEach(card=>{
-        const open=()=>openStudentResult(card.dataset.studentResultId);
-        card.addEventListener('click',open);
-        card.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});
+      const groups=[];
+      const gm=new Map();
+      results.forEach(x=>{const key=String(x.exam_id||x.title||'exam');let g=gm.get(key);if(!g){g={key,title:x.title||'Exam',rows:[]};gm.set(key,g);groups.push(g);}g.rows.push(x);});
+      studentResults.innerHTML=groups.length ? groups.map((g,gi)=>{
+        const gid='student-attempt-'+gi;
+        return `<div class="student-result-card">
+          <div class="student-result-top"><div class="student-result-title">${escapeHtmlForGenerated(g.title)}</div><div class="student-result-score">${g.rows.length} attempt${g.rows.length===1?'':'s'}</div></div>
+          <div class="student-result-meta">Choose an attempt to review its result.</div>
+          <select class="text-input attempt-switcher" data-group="${gid}" style="margin-top:10px">${g.rows.map((x,i)=>`<option value="${escapeHtmlForGenerated(x.id||'')}">Attempt ${i+1} · ${Number(x.score)||0}/${Number(x.total)||0} · ${Number(x.percentage||0).toFixed(1)}% · ${x.submitted_at?new Date(Number(x.submitted_at)).toLocaleString():''}</option>`).join('')}</select>
+          <button type="button" class="home-action" data-open-group="${gid}" style="margin-top:10px">View selected attempt</button>
+        </div>`;
+      }).join('') : '<div class="empty-dash">No submitted exams yet.</div>';
+      groups.forEach((g,gi)=>{
+        const gid='student-attempt-'+gi, select=studentResults.querySelector('.attempt-switcher[data-group="'+gid+'"]'), btn=studentResults.querySelector('[data-open-group="'+gid+'"]');
+        btn?.addEventListener('click',()=>openStudentResult(select?.value||g.rows[0]?.id));
       });
     }catch(e){ studentResults.innerHTML='<div class="empty-dash">Could not load results.</div>'; }
   }
