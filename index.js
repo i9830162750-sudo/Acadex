@@ -205,7 +205,42 @@ app.get('/', (req,res) => {
   try {
     const file = path.join(__dirname, 'public', 'index.html');
     let html = fs.readFileSync(file, 'utf8');
-    html = html.replace('</head>', '<meta name="acadex-ui" content="combined"><style id="acadex-ui-endpoint">html,body{min-width:0;}body{overflow-x:hidden;}</style>' + ACADEX_MOBILE_NAV_FIX + '</head>');
+    const bootGate = `
+<style id="acadex-boot-gate">html:not([data-acadex-boot-ready]) body{visibility:hidden!important;}</style>
+<script id="acadex-boot-gate-script">
+(function(){
+  var standalone=window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true;
+  if(!standalone){
+    location.replace('/install');
+    return;
+  }
+  var checking=false;
+  async function check(){
+    if(checking)return;
+    checking=true;
+    var controller=new AbortController();
+    var timeout=setTimeout(function(){controller.abort()},12000);
+    try{
+      var response=await fetch('/api/health?boot='+Date.now(),{
+        cache:'no-store',
+        headers:{'Cache-Control':'no-cache'},
+        signal:controller.signal
+      });
+      if(response.ok){
+        clearTimeout(timeout);
+        document.documentElement.setAttribute('data-acadex-boot-ready','1');
+        return;
+      }
+    }catch(_){}
+    clearTimeout(timeout);
+    checking=false;
+    setTimeout(check,5000);
+  }
+  check();
+})();
+</script>`;
+    html = html.replace('</head>', '<meta name="acadex-ui" content="combined"><style id="acadex-ui-endpoint">html,body{min-width:0;}body{overflow-x:hidden;}</style>' + ACADEX_MOBILE_NAV_FIX + bootGate + '</head>');
+    res.set('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate');
     res.type('html').send(html);
   } catch (_) {
     res.status(500).send('Acadex app is unavailable.');
