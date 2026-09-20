@@ -49,44 +49,6 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // PWA/browser entry point: show the tiny cached loader first.
-  // The loader decides whether to show the install screen or wake Render.
-  if (
-    event.request.mode === 'navigate' &&
-    (url.pathname === '/' || url.pathname === '/index.html') &&
-    !url.searchParams.has('acadexBoot')
-  ) {
-    event.respondWith(
-      caches.match('/pwa-loader.html').then(loader =>
-        loader || fetch('/pwa-loader.html')
-      )
-    );
-    return;
-  }
-
-  // The actual app boot request is always network-first.
-  if (url.pathname === '/' || url.pathname === '/index.html') {
-    event.respondWith(
-      fetch(event.request)
-        .then(response => {
-          if (response && response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE).then(c => c.put('/index.html', copy));
-          }
-          return response;
-        })
-        .catch(() =>
-          caches.match('/index.html').then(r =>
-            r || new Response('Acadex is temporarily unavailable.', {
-              status: 503,
-              headers: {'Content-Type': 'text/plain'}
-            })
-          )
-        )
-    );
-    return;
-  }
-
   const isStatic = STATIC_ASSETS.some(path => url.pathname === path);
   if (isStatic) {
     event.respondWith(
