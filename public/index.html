@@ -909,6 +909,7 @@ body.student-role .student-only-nav{display:flex!important;}
       <button class="app-nav-btn teacher-only-nav" type="button" data-app-view="students" title="Students"><span class="app-nav-icon">♙</span><span>Students</span></button>
       <button class="app-nav-btn student-only-nav" type="button" data-app-view="teachers" title="Teachers"><span class="app-nav-icon">♙</span><span>Teachers</span></button>
       <button class="app-nav-btn teacher-only-nav" type="button" data-app-view="create" title="Create exam"><span class="app-nav-icon">＋</span><span>Create exam</span></button>
+      <button class="app-nav-btn" type="button" data-app-view="settings" title="Settings"><span class="app-nav-icon">⚙</span><span>Settings</span></button>
     </nav>
 
     <div class="build-nav">
@@ -973,6 +974,57 @@ body.student-role .student-only-nav{display:flex!important;}
               <div class="home-stat"><div class="home-stat-value" id="homeStatOne">—</div><div class="home-stat-label" id="homeStatOneLabel">Exams</div></div>
               <div class="home-stat"><div class="home-stat-value" id="homeStatTwo">—</div><div class="home-stat-label" id="homeStatTwoLabel">Students</div></div>
               <div class="home-stat"><div class="home-stat-value" id="homeStatThree">Ready</div><div class="home-stat-label" id="homeStatThreeLabel">Server</div></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Settings panel -->
+        <section class="home-panel" id="appSettings" style="display:none">
+          <div class="home-wrap" style="max-width:700px">
+            <div class="home-hero" style="padding-bottom:12px">
+              <div>
+                <div class="home-kicker">Configuration</div>
+                <h1 class="home-title" style="font-size:clamp(1.6rem,3vw,2.4rem)">Settings</h1>
+              </div>
+            </div>
+            <!-- Appearance -->
+            <div class="home-card" style="margin-bottom:14px">
+              <h3 style="margin-bottom:4px">Appearance</h3>
+              <p style="margin:0 0 16px;font-size:.82rem;color:var(--ink-soft)">Choose how Acadex looks. Auto follows your system setting.</p>
+              <div style="display:flex;gap:8px" id="settingsThemeRow">
+                <button type="button" class="stg-theme-btn" data-theme="light" style="flex:1;border:1px solid var(--line);background:var(--bg-sunken);color:var(--ink-soft);border-radius:11px;padding:10px 6px;font:700 .82rem Inter,sans-serif;cursor:pointer">☀ Light</button>
+                <button type="button" class="stg-theme-btn active" data-theme="system" style="flex:1;border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);border-radius:11px;padding:10px 6px;font:700 .82rem Inter,sans-serif;cursor:pointer">⬡ Auto</button>
+                <button type="button" class="stg-theme-btn" data-theme="dark" style="flex:1;border:1px solid var(--line);background:var(--bg-sunken);color:var(--ink-soft);border-radius:11px;padding:10px 6px;font:700 .82rem Inter,sans-serif;cursor:pointer">☾ Dark</button>
+              </div>
+            </div>
+            <!-- Account -->
+            <div class="home-card" style="margin-bottom:14px" id="settingsAccountCard">
+              <h3 style="margin-bottom:4px">Account</h3>
+              <p style="margin:0 0 16px;font-size:.82rem;color:var(--ink-soft)" id="settingsAccountMeta">Sign in to manage your account.</p>
+              <div id="settingsChangePasswordWrap" style="display:none">
+                <div style="margin-bottom:10px;font:700 .78rem Inter,sans-serif;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.08em">Change Password</div>
+                <input id="settingsCurrentPw" type="password" placeholder="Current password" class="account-input" style="margin-bottom:8px">
+                <input id="settingsNewPw" type="password" placeholder="New password (min 6 chars)" class="account-input" style="margin-bottom:8px">
+                <input id="settingsNewPw2" type="password" placeholder="Confirm new password" class="account-input" style="margin-bottom:12px">
+                <button type="button" id="settingsSavePwBtn" style="border:0;border-radius:11px;padding:12px 20px;background:var(--accent);color:var(--accent-ink);font:800 .86rem Inter,sans-serif;cursor:pointer;width:100%">Update password</button>
+                <div id="settingsPwMsg" style="min-height:18px;margin-top:8px;font-size:.8rem"></div>
+              </div>
+              <!-- Storage -->
+              <div id="settingsStorageWrap" style="margin-top:18px;display:none">
+                <div style="margin-bottom:8px;font:700 .78rem Inter,sans-serif;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.08em">Local Storage Used</div>
+                <div style="height:8px;border-radius:6px;background:var(--bg-sunken);overflow:hidden;margin-bottom:6px"><div id="settingsStorageBar" style="height:100%;border-radius:6px;background:var(--accent);width:0%;transition:width .4s ease"></div></div>
+                <div id="settingsStorageLabel" style="font-size:.78rem;color:var(--ink-soft)">Calculating…</div>
+              </div>
+            </div>
+            <!-- About -->
+            <div class="home-card" style="margin-bottom:14px">
+              <h3 style="margin-bottom:10px">About Acadex</h3>
+              <div style="display:grid;gap:8px;font-size:.84rem">
+                <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line-soft)"><span style="color:var(--ink-soft)">Platform</span><span style="font-weight:700">Acadex Exam Platform</span></div>
+                <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line-soft)"><span style="color:var(--ink-soft)">Backend</span><span style="font-weight:700">Render · Express.js</span></div>
+                <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line-soft)"><span style="color:var(--ink-soft)">Storage</span><span style="font-weight:700">PostgreSQL</span></div>
+                <div style="display:flex;justify-content:space-between;padding:10px 0"><span style="color:var(--ink-soft)">PWA</span><span style="font-weight:700">Offline-capable</span></div>
+              </div>
             </div>
           </div>
         </section>
@@ -1695,7 +1747,31 @@ body.student-role .student-only-nav{display:flex!important;}
     if(view==='settings'){
       topbarTitle.textContent='Settings';
       topbarSub.textContent='Manage your Acadex preferences';
-      openSettings();
+      document.querySelectorAll('.home-panel').forEach(p=>p.classList.remove('active'));
+      document.getElementById('appSettings')?.classList.add('active');
+      document.querySelectorAll('.app-nav-btn[data-app-view]').forEach(b=>b.classList.toggle('active',b.dataset.appView==='settings'));
+      document.body.dataset.appView='settings';
+      // populate account section
+      if(accountUser){
+        document.getElementById('settingsAccountMeta').textContent=(accountUser.displayName||accountUser.email)+' · '+(accountUser.role==='teacher'?'Teacher':'Student');
+        document.getElementById('settingsChangePasswordWrap').style.display='block';
+        document.getElementById('settingsStorageWrap').style.display='block';
+        loadSettingsStorage();
+      }else{
+        document.getElementById('settingsAccountMeta').textContent='Sign in to manage your account.';
+        document.getElementById('settingsChangePasswordWrap').style.display='none';
+        document.getElementById('settingsStorageWrap').style.display='none';
+      }
+      // sync theme buttons
+      const curTheme=document.documentElement.getAttribute('data-theme-pref')||'system';
+      document.querySelectorAll('.stg-theme-btn').forEach(b=>{
+        const active=b.dataset.theme===curTheme;
+        b.classList.toggle('active',active);
+        b.style.border=active?'1px solid var(--accent)':'1px solid var(--line)';
+        b.style.background=active?'var(--accent-soft)':'var(--bg-sunken)';
+        b.style.color=active?'var(--accent)':'var(--ink-soft)';
+      });
+      document.querySelector('.content-scroll').scrollTop=0;
       return;
     }
 
@@ -3577,6 +3653,59 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
   document.getElementById('importReviewCancel')?.addEventListener('click',closeImportReview);
   document.getElementById('importReviewContinue')?.addEventListener('click',commitImportedQuestions);
   document.getElementById('importReviewOverlay')?.addEventListener('click',e=>{if(e.target.id==='importReviewOverlay')closeImportReview()});
+
+  /* ─── Settings page wiring ─── */
+  document.getElementById('settingsThemeRow')?.addEventListener('click',e=>{
+    const btn=e.target.closest('.stg-theme-btn');
+    if(!btn)return;
+    applyTheme(btn.dataset.theme);
+    document.querySelectorAll('.stg-theme-btn').forEach(b=>{
+      const active=b===btn;
+      b.classList.toggle('active',active);
+      b.style.border=active?'1px solid var(--accent)':'1px solid var(--line)';
+      b.style.background=active?'var(--accent-soft)':'var(--bg-sunken)';
+      b.style.color=active?'var(--accent)':'var(--ink-soft)';
+    });
+  });
+
+  document.getElementById('settingsSavePwBtn')?.addEventListener('click',async()=>{
+    const btn=document.getElementById('settingsSavePwBtn');
+    const msg=document.getElementById('settingsPwMsg');
+    const cur=document.getElementById('settingsCurrentPw').value;
+    const nw=document.getElementById('settingsNewPw').value;
+    const nw2=document.getElementById('settingsNewPw2').value;
+    msg.textContent=''; msg.style.color='var(--danger)';
+    if(!cur||!nw||!nw2){msg.textContent='Fill in all three fields.';return;}
+    if(nw!==nw2){msg.textContent='New passwords do not match.';return;}
+    if(nw.length<6){msg.textContent='New password must be at least 6 characters.';return;}
+    btn.disabled=true; btn.textContent='Updating…';
+    try{
+      const r=await accountFetch('/api/auth/change-password',{method:'POST',body:JSON.stringify({currentPassword:cur,newPassword:nw})});
+      const d=await r.json();
+      if(!r.ok)throw new Error(d.error||'Could not update password.');
+      msg.style.color='var(--success)'; msg.textContent='✓ Password updated.';
+      document.getElementById('settingsCurrentPw').value='';
+      document.getElementById('settingsNewPw').value='';
+      document.getElementById('settingsNewPw2').value='';
+    }catch(e){msg.textContent=e.message;}
+    btn.disabled=false; btn.textContent='Update password';
+  });
+
+  function loadSettingsStorage(){
+    if(!navigator.storage||!navigator.storage.estimate){
+      document.getElementById('settingsStorageLabel').textContent='Storage API not available in this browser.';
+      return;
+    }
+    navigator.storage.estimate().then(est=>{
+      const used=est.usage||0, quota=est.quota||0;
+      const pct=quota>0?Math.min(100,(used/quota)*100):0;
+      const fmt=b=>b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(1)+' MB';
+      document.getElementById('settingsStorageBar').style.width=pct.toFixed(1)+'%';
+      document.getElementById('settingsStorageBar').style.background=pct>80?'var(--danger)':pct>60?'var(--warn)':'var(--accent)';
+      document.getElementById('settingsStorageLabel').textContent=quota>0?fmt(used)+' used of '+fmt(quota)+' ('+pct.toFixed(1)+'%)':fmt(used)+' used';
+    }).catch(()=>{document.getElementById('settingsStorageLabel').textContent='Could not read storage usage.';});
+  }
+
   showAppView('home');
 </script>
 
@@ -3980,3 +4109,4 @@ button,input,select,textarea{max-width:100%;font:inherit;}
   .home-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));}
 }
 </style>
+
