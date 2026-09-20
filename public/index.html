@@ -1203,6 +1203,10 @@ body.student-role .student-only-nav{display:flex!important;}
     margin-right:0!important;
   }
 }
+</style><style id="acadex-generate-share-ui">
+.generate-note{border:1px solid var(--line);background:var(--bg-elev);border-radius:12px;padding:22px;margin-top:10px}
+.generate-note strong{font:800 1rem 'DM Sans',sans-serif}
+.generate-note p{margin-top:6px;color:var(--ink-soft);font-size:.82rem;line-height:1.5}
 </style></head>
 <body>
 
@@ -1230,7 +1234,8 @@ body.student-role .student-only-nav{display:flex!important;}
       <div class="nav-step" data-panel="1"><span class="num">2</span> Exam Type</div>
       <div class="nav-step" data-panel="2"><span class="num">3</span> Time Limit</div>
       <div class="nav-step" data-panel="3"><span class="num">4</span> Password</div>
-      <div class="nav-step" data-panel="4"><span class="num">5</span> Delivery</div>
+      <div class="nav-step" data-panel="4"><span class="num">5</span> Generate</div>
+      <div class="nav-step" data-panel="5"><span class="num">6</span> Share</div>
     </div>
 
     <div class="sidebar-footer">
@@ -1258,7 +1263,9 @@ body.student-role .student-only-nav{display:flex!important;}
           <i></i>
           <div class="exam-progress-step" data-progress="3"><span>4</span><b>Password</b></div>
           <i></i>
-          <div class="exam-progress-step" data-progress="4"><span>5</span><b>Delivery</b></div>
+          <div class="exam-progress-step" data-progress="4"><span>5</span><b>Generate</b></div>
+          <i></i>
+          <div class="exam-progress-step" data-progress="5"><span>6</span><b>Share</b></div>
         </div>
       </div>
       <div class="topbar-right">
@@ -1526,6 +1533,15 @@ body.student-role .student-only-nav{display:flex!important;}
             </button>
           </div>
 
+          <div class="generate-note"><strong>Ready to generate</strong><p>Acadex will create the exam on the server and give you a shareable link.</p></div>
+        </section>
+
+        <!-- Panel 5: Share -->
+        <section class="panel" data-panel="5">
+          <div class="panel-head">
+            <h2>Share your exam</h2>
+            <p>Your hosted exam link is ready. Copy it, open it, or share it directly.</p>
+          </div>
           <div class="hosted-result" id="hostedResult">
             <div class="hr-label">✅ Exam created successfully</div>
             <div class="hr-url" id="hostedUrlText"></div>
@@ -1764,7 +1780,7 @@ body.student-role .student-only-nav{display:flex!important;}
     }
   }
   let currentPanel = 0;
-  const TOTAL_PANELS = 5;
+  const TOTAL_PANELS = 6;
 
 
   async function accountFetch(path, options={}) {
@@ -1855,8 +1871,9 @@ body.student-role .student-only-nav{display:flex!important;}
     });
     navPrevBtn.style.visibility = currentPanel === 0 ? 'hidden' : 'visible';
     const isLast = currentPanel === TOTAL_PANELS - 1;
-    navNextBtn.style.display   = isLast ? 'none' : 'inline-flex';
-    generateBtn.style.display  = isLast ? 'inline-flex' : 'none';
+    const isGenerate = currentPanel === 4;
+    navNextBtn.style.display   = (isLast || isGenerate) ? 'none' : 'inline-flex';
+    generateBtn.style.display  = isGenerate ? 'inline-flex' : 'none';
     document.querySelector('.content-scroll').scrollTop = 0;
   }
 
@@ -2209,7 +2226,7 @@ body.student-role .student-only-nav{display:flex!important;}
     } else if (type === 'template') {
       generateBtn.querySelector('span').textContent = 'Generate Template Exam';
     } else {
-      generateBtn.querySelector('span').textContent = 'Generate Exam Page';
+      generateBtn.querySelector('span').textContent = 'Generate Exam';
     }
     updateGenerateBtn();
   }
@@ -2548,7 +2565,7 @@ Fill the blank template using the MCQ set and return only the completed template
       .catch(() => {
         clearTimeout(timer);
         backendReady = false;
-        setServerStatus('offline', 'Server unavailable — offline mode works');
+        setServerStatus('offline', 'Server unavailable');
         return false;
       });
   }
@@ -2561,8 +2578,7 @@ Fill the blank template using the MCQ set and return only the completed template
   function setDeliveryMode() {
     hostedResult.classList.remove('visible');
     errorBanner.classList.remove('visible');
-    generateBtn.querySelector('span').textContent =
-      examType === 'template' ? 'Generate Hosted Template Exam' : 'Generate Exam Page';
+    generateBtn.querySelector('span').textContent = 'Generate Exam';
     updateGenerateBtn();
   }
   modeHostedBtn.addEventListener('click', () => setDeliveryMode());
@@ -2706,8 +2722,9 @@ Fill the blank template using the MCQ set and return only the completed template
               .catch(() => showToast('Could not copy link.', 'error'));
           }
         };
-        showToast('✅  Hosted exam created!', 'success', 4000);
+        showToast('✅ Hosted exam created!', 'success', 4000);
         resetGenerateBtn();
+        goToPanel(5);
       })
       .catch((err) => {
         resetGenerateBtn();
@@ -2738,7 +2755,7 @@ Fill the blank template using the MCQ set and return only the completed template
 
     if (examType === 'pdf') {
       if (!selectedFile) missing.push('a PDF file');
-    } else {
+    } else if (examType === 'template') {
       if (!questions.length) {
         missing.push('at least one question');
       } else {
@@ -2857,6 +2874,7 @@ Fill the blank template using the MCQ set and return only the completed template
         };
         showToast('✅ Hosted template exam created!', 'success', 4000);
         resetGenerateBtn();
+        goToPanel(5);
       })
       .catch((err) => {
         resetGenerateBtn();
