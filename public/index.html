@@ -932,38 +932,76 @@ body.student-role .student-only-nav{display:flex!important;}
     padding:22px 16px!important;
     box-shadow:10px 0 30px rgba(0,0,0,.18)!important;
   }
-  .sidebar .brand{justify-content:center;padding-left:0;padding-right:0;transition:justify-content .18s var(--ease)!important;}
-  .sidebar:hover .brand{justify-content:flex-start;padding-left:10px;padding-right:10px;}
-  .sidebar .brand-text,
-  .sidebar .nav-group-label,
-  .sidebar .app-nav-btn>span:not(.app-nav-icon),
-  .sidebar .nav-step:not(.active),
-  .sidebar .server-pill>span:not(.dot){
-    opacity:0!important;
-    visibility:hidden!important;
-    width:0!important;
-    overflow:hidden!important;
-    transition:opacity .12s var(--ease),visibility .12s var(--ease),width .22s var(--ease)!important;
+  .sidebar .brand{
+    justify-content:center!important;
+    width:100%!important;
+    padding:6px 0 22px!important;
+    gap:0!important;
   }
-  .sidebar:hover .brand-text,
-  .sidebar:hover .nav-group-label,
-  .sidebar:hover .app-nav-btn>span:not(.app-nav-icon),
-  .sidebar:hover .nav-step,
-  .sidebar:hover .server-pill>span:not(.dot){
+  .sidebar:hover .brand{
+    justify-content:flex-start!important;
+    width:auto!important;
+    padding:6px 10px 22px!important;
+    gap:10px!important;
+  }
+
+  /* Hard-hide all text in the collapsed rail so it cannot clip into view. */
+  .sidebar:not(:hover) .brand-text,
+  .sidebar:not(:hover) .nav-group-label,
+  .sidebar:not(:hover) .app-nav-btn>span:not(.app-nav-icon),
+  .sidebar:not(:hover) .nav-step,
+  .sidebar:not(:hover) .server-pill>span:not(.dot){
+    display:none!important;
+  }
+
+  .sidebar .app-nav{
+    width:100%!important;
+    align-items:stretch!important;
+  }
+  .sidebar .app-nav-btn{
+    justify-content:center!important;
+    width:100%!important;
+    min-width:0!important;
+    min-height:40px!important;
+    padding:10px!important;
+    margin:0 0 4px!important;
+    gap:0!important;
+    overflow:hidden!important;
+  }
+  .sidebar .app-nav-btn .app-nav-icon{
+    flex:0 0 20px!important;
+    width:20px!important;
+    height:20px!important;
+    display:grid!important;
+    place-items:center!important;
+    margin:0!important;
+    text-align:center!important;
+  }
+  .sidebar:hover .app-nav-btn{
+    justify-content:flex-start!important;
+    padding:10px!important;
+    gap:11px!important;
+  }
+  .sidebar:hover .app-nav-btn>span:not(.app-nav-icon){
+    display:inline!important;
     opacity:1!important;
     visibility:visible!important;
     width:auto!important;
   }
-  .sidebar .app-nav{align-items:stretch!important;}
-  .sidebar .app-nav-btn{
-    justify-content:center!important;
-    min-height:40px!important;
-    padding-left:8px!important;
-    padding-right:8px!important;
+  .sidebar .nav-group-label{
     overflow:hidden!important;
+    white-space:nowrap!important;
   }
-  .sidebar:hover .app-nav-btn{justify-content:flex-start!important;padding-left:10px!important;padding-right:10px!important;}
-  .sidebar .app-nav-icon{flex:0 0 20px!important;width:20px!important;text-align:center!important;}
+  .sidebar .server-pill{
+    width:100%!important;
+    min-width:0!important;
+    justify-content:center!important;
+    padding:9px 7px!important;
+  }
+  .sidebar:hover .server-pill{
+    justify-content:flex-start!important;
+    padding:9px 11px!important;
+  }
   .sidebar .build-nav{overflow:hidden!important;transition:opacity .15s var(--ease)!important;}
   .sidebar:not(:hover) .build-nav{opacity:0!important;pointer-events:none!important;height:0!important;margin:0!important;}
   .sidebar .server-pill{justify-content:center!important;padding-left:7px!important;padding-right:7px!important;overflow:hidden!important;}
