@@ -402,6 +402,32 @@ function gradeExam(exam, answers){
 app.post('/api/auth/register', async(req,res)=>{ try{ const {role,email,password,displayName,studentId}=req.body||{}; if(!['teacher','student'].includes(role))return res.status(400).json({error:'Choose teacher or student.'}); const e=String(email||'').trim().toLowerCase(); const p=String(password||''); const n=String(displayName||'').trim(); if(!e||!e.includes('@'))return res.status(400).json({error:'Enter a valid email.'}); if(p.length<6)return res.status(400).json({error:'Password must be at least 6 characters.'}); if(n.length<2)return res.status(400).json({error:'Enter your name.'}); if(role==='student'&&!String(studentId||'').trim())return res.status(400).json({error:'Student ID is required.'}); const exists=await pool.query('SELECT id FROM users WHERE email=$1',[e]); if(exists.rows[0])return res.status(409).json({error:'An account with that email already exists.'}); const id='usr_'+crypto.randomBytes(12).toString('hex'); await pool.query('INSERT INTO users(id,role,email,password_hash,display_name,student_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,role,e,makePasswordHash(p),n,role==='student'?String(studentId).trim():null,Date.now()]); const token=makeToken(); await pool.query('INSERT INTO auth_sessions(token_hash,user_id,created_at,expires_at) VALUES($1,$2,$3,$4)',[hashToken(token),id,Date.now(),Date.now()+1000*60*60*24*30]); res.json({token,user:{id,role,email:e,displayName:n,studentId:role==='student'?String(studentId).trim():null}}); }catch(err){console.error(err);res.status(500).json({error:'Could not create account.'});} });
 app.post('/api/auth/login', async(req,res)=>{ try{ const e=String(req.body?.email||'').trim().toLowerCase(), p=String(req.body?.password||''); const {rows}=await pool.query('SELECT id,role,email,password_hash,display_name,student_id FROM users WHERE email=$1',[e]); const u=rows[0]; if(!u||!verifyPassword(p,u.password_hash))return res.status(401).json({error:'Incorrect email or password.'}); const token=makeToken(); await pool.query('INSERT INTO auth_sessions(token_hash,user_id,created_at,expires_at) VALUES($1,$2,$3,$4)',[hashToken(token),u.id,Date.now(),Date.now()+1000*60*60*24*30]); res.json({token,user:{id:u.id,role:u.role,email:u.email,displayName:u.display_name,studentId:u.student_id}}); }catch(err){console.error(err);res.status(500).json({error:'Could not log in.'});} });
 app.post('/api/auth/logout', async(req,res)=>{ try{ const raw=String(req.headers.authorization||'').replace(/^Bearer\s+/,'').trim(); if(raw)await pool.query('DELETE FROM auth_sessions WHERE token_hash=$1',[hashToken(raw)]); res.json({ok:true}); }catch(err){res.status(500).json({error:'Could not log out.'});} });
+app.delete('/api/auth/account', async(req,res)=>{
+  const client=await pool.connect();
+  try{
+    const raw=String(req.headers.authorization||'').replace(/^Bearer\s+/,'').trim();
+    if(!raw)return res.status(401).json({error:'Not logged in.'});
+    const u=await getAuthUser(req);
+    if(!u)return res.status(401).json({error:'Not logged in.'});
+    const password=String(req.body?.password||'');
+    if(!password)return res.status(400).json({error:'Password is required.'});
+    const {rows}=await client.query('SELECT password_hash FROM users WHERE id=$1',[u.id]);
+    if(!rows[0]||!verifyPassword(password,rows[0].password_hash))return res.status(401).json({error:'Password is incorrect.'});
+
+    await client.query('BEGIN');
+    await client.query('DELETE FROM exams WHERE owner_user_id=$1',[u.id]);
+    await client.query('DELETE FROM exam_submissions WHERE student_user_id=$1',[u.id]);
+    await client.query('DELETE FROM exam_sessions WHERE student_user_id=$1',[u.id]);
+    await client.query('DELETE FROM auth_sessions WHERE user_id=$1',[u.id]);
+    await client.query('DELETE FROM users WHERE id=$1',[u.id]);
+    await client.query('COMMIT');
+    res.json({ok:true});
+  }catch(err){
+    try{await client.query('ROLLBACK')}catch(_){}
+    console.error(err);
+    res.status(500).json({error:'Could not delete the account.'});
+  }finally{client.release();}
+});
 app.get('/api/auth/me', async(req,res)=>{ try{const u=await getAuthUser(req); if(!u)return res.status(401).json({error:'Not logged in.'}); res.json({user:{id:u.id,role:u.role,email:u.email,displayName:u.display_name,studentId:u.student_id}});}catch(err){res.status(500).json({error:'Could not load account.'});} });
 app.post('/api/auth/change-password', async(req,res)=>{ try{ const u=await getAuthUser(req); if(!u)return res.status(401).json({error:'Not logged in.'}); const current=String(req.body?.currentPassword||''); const next=String(req.body?.newPassword||''); if(!current||!next)return res.status(400).json({error:'Both fields are required.'}); if(next.length<6)return res.status(400).json({error:'New password must be at least 6 characters.'}); const {rows}=await pool.query('SELECT password_hash FROM users WHERE id=$1',[u.id]); if(!rows[0]||!verifyPassword(current,rows[0].password_hash))return res.status(401).json({error:'Current password is incorrect.'}); await pool.query('UPDATE users SET password_hash=$1 WHERE id=$2',[makePasswordHash(next),u.id]); res.json({ok:true}); }catch(err){console.error(err);res.status(500).json({error:'Could not change password.'});} });
 app.get('/api/admin/my-storage', async(req,res)=>{ try{
