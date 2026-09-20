@@ -1716,6 +1716,16 @@ body.student-role .student-only-nav{display:flex!important;}
      CONFIG
   ═══════════════════════════════════════════════════════════════ */
   const API_BASE_URL = 'https://exam-tool-7as0.onrender.com';
+
+  // Shared HTML escaping helper used by dashboard/account rendering.
+  function escapeHtmlForGenerated(value){
+    return String(value ?? '')
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;')
+      .replace(/'/g,'&#39;');
+  }
   /* ═══════════════════════════════════════════════════════════════
      STATE
   ═══════════════════════════════════════════════════════════════ */
