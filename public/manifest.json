@@ -2,7 +2,7 @@
   "name": "Acadex — Exam Platform",
   "short_name": "Acadex",
   "description": "Acadex exam platform",
-  "start_url": "/",
+  "start_url": "/app/acadex-app-7f3c9e21",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0e0f13",
