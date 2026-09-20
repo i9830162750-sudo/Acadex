@@ -3789,11 +3789,15 @@ Fill the blank template using the MCQ set and return only the completed template
     if(list) list.innerHTML='<div style="text-align:center;padding:20px;color:var(--ink-faint);font-size:.82rem">Loading…</div>';
     accountFetch('/api/admin/my-storage').then(r=>r.json()).then(d=>{
       if(d.error){if(list)list.innerHTML='<div style="color:var(--danger);font-size:.82rem;padding:8px">'+d.error+'</div>';return;}
-      const total=d.totalExamBytes||0, limit=10*1024*1024*1024;
+      /* B2 is a shared Acadex bucket: the quota bar uses global usage,
+         while the exam list below remains limited to this teacher's exams. */
+      const total=d.globalExamBytes ?? d.totalExamBytes ?? 0;
+      const limit=d.b2QuotaBytes || 10*1024*1024*1024;
+      const remaining=d.b2RemainingBytes ?? Math.max(0,limit-total);
       const pct=Math.min(100,(total/limit)*100);
       if(bar){bar.style.width=pct.toFixed(1)+'%';bar.style.background=pct>80?'var(--danger)':pct>60?'var(--warn)':'var(--accent)';}
-      if(totalLabel)totalLabel.textContent=fmtBytes(total)+' of 10 GB B2 storage used';
-      if(pctLabel)pctLabel.textContent=pct.toFixed(1)+'%';
+      if(totalLabel)totalLabel.textContent=fmtBytes(total)+' used · '+fmtBytes(remaining)+' remaining of 10 GB B2 storage';
+      if(pctLabel)pctLabel.textContent=pct.toFixed(1)+'% shared';
       if(!list)return;
       if(!d.exams||!d.exams.length){
         list.innerHTML='<div style="text-align:center;padding:20px;color:var(--ink-faint);font-size:.82rem">No exams yet.</div>';
