@@ -1934,7 +1934,7 @@ body.student-role .student-only-nav{display:flex!important;}
     goToPanel(target);
   }));
 
-  navPrevBtn.addEventListener('click', () => {
+  navPrevBtn?.addEventListener('click', () => {
     if(currentPanel === 4){
       cancelExamGeneration();
       return;
@@ -1946,7 +1946,7 @@ body.student-role .student-only-nav{display:flex!important;}
     goToPanel(currentPanel - 1);
   });
 
-  navNextBtn.addEventListener('click', () => {
+  navNextBtn?.addEventListener('click', () => {
     if(currentPanel === 3){
       generateBtn.click();
       return;
@@ -2306,10 +2306,10 @@ body.student-role .student-only-nav{display:flex!important;}
     updateGenerateBtn();
   }
 
-  examTypePdfBtn.addEventListener('click', () => setExamType('pdf'));
-  examTypeTemplateBtn.addEventListener('click', () => setExamType('template'));
-  examTitle.addEventListener('input', updateGenerateBtn);
-  studentPassword.addEventListener('input', updateGenerateBtn);
+  examTypePdfBtn?.addEventListener('click', () => setExamType('pdf'));
+  examTypeTemplateBtn?.addEventListener('click', () => setExamType('template'));
+  examTitle?.addEventListener('input', updateGenerateBtn);
+  studentPassword?.addEventListener('input', updateGenerateBtn);
 
   const ACADEX_TEMPLATE_TEXT = `ACADEX MCQ TEMPLATE
 VERSION: 1
@@ -2536,24 +2536,24 @@ Fill the blank template using the MCQ set and return only the completed template
     updateGenerateBtn();
   }
 
-  pdfInput.addEventListener('change', () => {
+  pdfInput?.addEventListener('change', () => {
     if (pdfInput.files[0]) setFile(pdfInput.files[0]);
   });
 
-  dropZone.addEventListener('dragover', (e) => {
+  dropZone?.addEventListener('dragover', (e) => {
     e.preventDefault();
     dropZone.classList.add('drag-over');
   });
-  dropZone.addEventListener('dragleave', () => {
+  dropZone?.addEventListener('dragleave', () => {
     dropZone.classList.remove('drag-over');
   });
-  dropZone.addEventListener('drop', (e) => {
+  dropZone?.addEventListener('drop', (e) => {
     e.preventDefault();
     dropZone.classList.remove('drag-over');
     const file = e.dataTransfer.files[0];
     if (file) setFile(file);
   });
-  fileRemove.addEventListener('click', clearFile);
+  fileRemove?.addEventListener('click', clearFile);
 
   /* ═══════════════════════════════════════════════════════════════
      TIMER CONTROLS
@@ -2582,7 +2582,7 @@ Fill the blank template using the MCQ set and return only the completed template
     clampField(examHours, 0, 23);
     updateGenerateBtn();
   });
-  examHours.addEventListener('input', () => { clampField(examHours, 0, 23); updateGenerateBtn(); });
+  examHours?.addEventListener('input', () => { clampField(examHours, 0, 23); updateGenerateBtn(); });
 
   document.getElementById('minutesUp')?.addEventListener('click', () => {
     examMinutes.value = (parseInt(examMinutes.value, 10) || 0) + 5;
@@ -2594,7 +2594,7 @@ Fill the blank template using the MCQ set and return only the completed template
     clampField(examMinutes, 0, 59);
     updateGenerateBtn();
   });
-  examMinutes.addEventListener('input', () => { clampField(examMinutes, 0, 59); updateGenerateBtn(); });
+  examMinutes?.addEventListener('input', () => { clampField(examMinutes, 0, 59); updateGenerateBtn(); });
 
   document.getElementById('secondsUp')?.addEventListener('click', () => {
     examSeconds.value = (parseInt(examSeconds.value, 10) || 0) + 5;
@@ -2606,7 +2606,7 @@ Fill the blank template using the MCQ set and return only the completed template
     clampField(examSeconds, 0, 59);
     updateGenerateBtn();
   });
-  examSeconds.addEventListener('input', () => { clampField(examSeconds, 0, 59); updateGenerateBtn(); });
+  examSeconds?.addEventListener('input', () => { clampField(examSeconds, 0, 59); updateGenerateBtn(); });
 
   document.querySelectorAll('.preset-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2648,7 +2648,7 @@ Fill the blank template using the MCQ set and return only the completed template
     generateBtn.querySelector('span').textContent = 'Generate Exam';
     updateGenerateBtn();
   }
-  modeHostedBtn.addEventListener('click', () => setDeliveryMode());
+  modeHostedBtn?.addEventListener('click', () => setDeliveryMode());
 
   /* ═══════════════════════════════════════════════════════════════
      ERROR BANNER HELPERS
@@ -2661,7 +2661,7 @@ Fill the blank template using the MCQ set and return only the completed template
   function hideErrorBanner() {
     errorBanner.classList.remove('visible');
   }
-  retryLink.addEventListener('click', () => {
+  retryLink?.addEventListener('click', () => {
     hideErrorBanner();
     generateBtn.click();
   });
@@ -2711,8 +2711,8 @@ Fill the blank template using the MCQ set and return only the completed template
 
   // Catch changes from the question builder even if a future UI component
   // changes how the individual controls dispatch their events.
-  questionList.addEventListener('input', updateGenerateBtn);
-  questionList.addEventListener('change', updateGenerateBtn);
+  questionList?.addEventListener('input', updateGenerateBtn);
+  questionList?.addEventListener('change', updateGenerateBtn);
 
   /* ═══════════════════════════════════════════════════════════════
      GENERATE EXAM PAGE
@@ -2852,7 +2852,7 @@ Fill the blank template using the MCQ set and return only the completed template
   }
 
 
-  generateBtn.addEventListener('click', () => {
+  generateBtn?.addEventListener('click', () => {
     const missing = [];
 
     if (!examTitle.value.trim()) {
