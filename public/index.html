@@ -1553,8 +1553,8 @@ body.student-role .student-only-nav{display:flex!important;}
           </div>
 
           <div class="error-banner" id="errorBanner">
-            <strong id="errorBannerTitle">Couldn't connect to the exam server</strong>
-            <span id="errorBannerMsg">Render may still be waking up. You can try again in a moment.</span>
+            <strong id="errorBannerTitle">Couldn't reach Acadex</strong>
+            <span id="errorBannerMsg">Reconnect to the internet and try again.</span>
             <br>
             <span class="retry-link" id="retryLink">Try again</span>
           </div>
@@ -2554,34 +2554,26 @@ Fill the blank template using the MCQ set and return only the completed template
   });
 
   /* ═══════════════════════════════════════════════════════════════
-     BACKEND STATUS / COLD-START PING
-  ═══════════════════════════════════════════════════════════════ */
+     LOCAL CONNECTIVITY STATUS
+     This is intentionally browser-local and never pings Render.
+     ═══════════════════════════════════════════════════════════════ */
   function setServerStatus(state, text) {
     serverStatus.className = 'server-pill ' + state;
     serverStatusText.textContent = text;
   }
 
-  function pingBackend(timeoutMs = 12000) {
-    setServerStatus('warming', 'Waking up exam server…');
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    return fetch(API_BASE_URL + '/ping', { signal: controller.signal })
-      .then((res) => {
-        clearTimeout(timer);
-        if (!res.ok) throw new Error('bad status');
-        backendReady = true;
-        setServerStatus('ready', 'Exam server ready');
-        return true;
-      })
-      .catch(() => {
-        clearTimeout(timer);
-        backendReady = false;
-        setServerStatus('offline', 'Server unavailable');
-        return false;
-      });
+  function updateNetworkStatus() {
+    backendReady = navigator.onLine;
+    setServerStatus(
+      navigator.onLine ? 'ready' : 'offline',
+      navigator.onLine ? 'Online' : 'Offline'
+    );
+    updateGenerateBtn();
   }
-  pingBackend();
-  updateGenerateBtn();
+
+  window.addEventListener('online', updateNetworkStatus);
+  window.addEventListener('offline', updateNetworkStatus);
+  updateNetworkStatus();
 
   /* ═══════════════════════════════════════════════════════════════
      DELIVERY MODE TOGGLE
@@ -2686,8 +2678,8 @@ Fill the blank template using the MCQ set and return only the completed template
     readFileAsDataUrl(selectedFile)
       .then((pdfDataUrl) => {
         generateBtn.querySelector('span').textContent = 'Creating hosted exam…';
-        return pingBackend().then((ok) => {
-          if (!ok) throw new Error('PING_FAILED');
+        if (!navigator.onLine) throw new Error('PING_FAILED');
+        return Promise.resolve().then(() => {
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), 20000);
           return fetch(API_BASE_URL + '/exam/create', {
@@ -2839,9 +2831,13 @@ Fill the blank template using the MCQ set and return only the completed template
     generateBtn.disabled = true;
     generateBtn.querySelector('span').textContent = 'Creating hosted template…';
 
-    pingBackend()
-      .then((ok) => {
-        if (!ok) throw new Error('PING_FAILED');
+    if (!navigator.onLine) {
+      resetGenerateBtn();
+      showErrorBanner('You are offline', 'Reconnect to the internet before creating a hosted exam.');
+      return;
+    }
+    Promise.resolve()
+      .then(() => {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 20000);
         return fetch(API_BASE_URL + '/exam/create', {
