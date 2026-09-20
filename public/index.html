@@ -11,6 +11,7 @@
 <link rel="icon" type="image/svg+xml" href="/icons/acadex-tab.svg" />
 <link rel="apple-touch-icon" href="/icons/acadex-icon.svg" />
 <title>Acadex — Exam Platform</title>
+<meta name="acadex-version" content="v2.4.9">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
@@ -1038,16 +1039,20 @@ body.student-role .student-only-nav{display:flex!important;}
                 <div style="margin-bottom:8px;font:700 .78rem Inter,sans-serif;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.08em">Local Storage Used</div>
                 <div style="height:8px;border-radius:6px;background:var(--bg-sunken);overflow:hidden;margin-bottom:6px"><div id="settingsStorageBar" style="height:100%;border-radius:6px;background:var(--accent);width:0%;transition:width .4s ease"></div></div>
                 <div id="settingsStorageLabel" style="font-size:.78rem;color:var(--ink-soft)">Calculating…</div>
+                <div style="margin-top:16px">
+                  <div style="margin-bottom:8px;font:700 .78rem Inter,sans-serif;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.08em">Database Storage (Neon)</div>
+                  <div style="height:8px;border-radius:6px;background:var(--bg-sunken);overflow:hidden;margin-bottom:6px"><div id="settingsDbBar" style="height:100%;border-radius:6px;background:var(--accent);width:0%;transition:width .4s ease"></div></div>
+                  <div id="settingsDbLabel" style="font-size:.78rem;color:var(--ink-soft)">Fetching…</div>
+                </div>
               </div>
             </div>
             <!-- About -->
             <div class="home-card" style="margin-bottom:14px">
               <h3 style="margin-bottom:10px">About Acadex</h3>
-              <div style="display:grid;gap:8px;font-size:.84rem">
-                <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line-soft)"><span style="color:var(--ink-soft)">Platform</span><span style="font-weight:700">Acadex Exam Platform</span></div>
-                <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line-soft)"><span style="color:var(--ink-soft)">Backend</span><span style="font-weight:700">Render · Express.js</span></div>
-                <div style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line-soft)"><span style="color:var(--ink-soft)">Storage</span><span style="font-weight:700">PostgreSQL</span></div>
-                <div style="display:flex;justify-content:space-between;padding:10px 0"><span style="color:var(--ink-soft)">PWA</span><span style="font-weight:700">Offline-capable</span></div>
+              <div style="display:grid;gap:0;font-size:.84rem">
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--line-soft)"><span style="color:var(--ink-soft)">Version</span><span style="font:800 .84rem JetBrains Mono,monospace;color:var(--accent)">v2.4.9</span></div>
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--line-soft)"><span style="color:var(--ink-soft)">Developer</span><span style="font-weight:700">Adresh</span></div>
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:11px 0"><span style="color:var(--ink-soft)">Instagram</span><a href="https://instagram.com/_mtb_adresh_" target="_blank" rel="noopener" style="color:var(--accent);font-weight:700;text-decoration:none">@_mtb_adresh_</a></div>
               </div>
             </div>
           </div>
@@ -3716,18 +3721,29 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
   });
 
   function loadSettingsStorage(){
+    const fmt=b=>b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':b<1073741824?(b/1048576).toFixed(1)+' MB':(b/1073741824).toFixed(2)+' GB';
     if(!navigator.storage||!navigator.storage.estimate){
       document.getElementById('settingsStorageLabel').textContent='Storage API not available in this browser.';
-      return;
+    }else{
+      navigator.storage.estimate().then(est=>{
+        const used=est.usage||0, quota=est.quota||0;
+        const pct=quota>0?Math.min(100,(used/quota)*100):0;
+        document.getElementById('settingsStorageBar').style.width=pct.toFixed(1)+'%';
+        document.getElementById('settingsStorageBar').style.background=pct>80?'var(--danger)':pct>60?'var(--warn)':'var(--accent)';
+        document.getElementById('settingsStorageLabel').textContent=quota>0?fmt(used)+' used of '+fmt(quota)+' ('+pct.toFixed(1)+'%)':fmt(used)+' used';
+      }).catch(()=>{document.getElementById('settingsStorageLabel').textContent='Could not read storage usage.';});
     }
-    navigator.storage.estimate().then(est=>{
-      const used=est.usage||0, quota=est.quota||0;
-      const pct=quota>0?Math.min(100,(used/quota)*100):0;
-      const fmt=b=>b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(1)+' MB';
-      document.getElementById('settingsStorageBar').style.width=pct.toFixed(1)+'%';
-      document.getElementById('settingsStorageBar').style.background=pct>80?'var(--danger)':pct>60?'var(--warn)':'var(--accent)';
-      document.getElementById('settingsStorageLabel').textContent=quota>0?fmt(used)+' used of '+fmt(quota)+' ('+pct.toFixed(1)+'%)':fmt(used)+' used';
-    }).catch(()=>{document.getElementById('settingsStorageLabel').textContent='Could not read storage usage.';});
+    accountFetch('/api/admin/db-size').then(r=>r.json()).then(d=>{
+      if(d.usedBytes!=null){
+        const used=d.usedBytes, limit=512*1024*1024;
+        const pct=Math.min(100,(used/limit)*100);
+        document.getElementById('settingsDbBar').style.width=pct.toFixed(1)+'%';
+        document.getElementById('settingsDbBar').style.background=pct>80?'var(--danger)':pct>60?'var(--warn)':'var(--accent)';
+        document.getElementById('settingsDbLabel').textContent=fmt(used)+' used of '+fmt(limit)+' free tier ('+pct.toFixed(1)+'%)';
+      }else{
+        document.getElementById('settingsDbLabel').textContent=d.error||'Could not fetch DB size.';
+      }
+    }).catch(()=>{document.getElementById('settingsDbLabel').textContent='Could not fetch DB size.';});
   }
 
   showAppView('home');
@@ -3976,7 +3992,7 @@ window.acadexSetIcon = function(el, name, preserveLabel=false) {
 
 <style id="acadex-mobile-nav-final">
 @media(max-width:600px){
-  .mobile-nav{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;grid-auto-flow:column!important;grid-auto-columns:1fr!important;gap:0!important;align-items:stretch!important;justify-items:stretch!important;left:0!important;right:0!important;bottom:0!important;width:100%!important;height:68px!important;min-height:68px!important;padding:6px 6px calc(6px + env(safe-area-inset-bottom))!important;margin:0!important;border:0!important;border-top:1px solid var(--line)!important;border-radius:0!important;background:var(--bg-elev)!important;box-shadow:0 -6px 20px rgba(18,19,26,.08)!important;overflow:hidden!important;z-index:3000!important}
+  .mobile-nav{display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;grid-auto-flow:column!important;grid-auto-columns:1fr!important;gap:0!important;align-items:stretch!important;justify-items:stretch!important;left:0!important;right:0!important;bottom:0!important;width:100%!important;height:68px!important;min-height:68px!important;padding:6px 6px calc(6px + env(safe-area-inset-bottom))!important;margin:0!important;border:0!important;border-top:1px solid var(--line)!important;border-radius:0!important;background:var(--bg-elev)!important;box-shadow:0 -6px 20px rgba(18,19,26,.08)!important;overflow:hidden!important;z-index:3000!important}
   .mobile-nav button{display:flex!important;position:relative!important;min-width:0!important;width:100%!important;height:54px!important;margin:0!important;padding:5px 1px!important;box-sizing:border-box!important;flex:1 1 0!important;border:0!important;border-radius:8px!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;gap:3px!important;background:transparent!important;color:var(--ink-faint)!important;font:700 .62rem/1 Inter,sans-serif!important;white-space:nowrap!important;overflow:hidden!important}
   .mobile-nav button.active{background:var(--accent-soft)!important;color:var(--accent)!important}
   .mobile-nav .mobile-nav-icon{display:grid!important;place-items:center!important;width:20px!important;height:20px!important;min-width:20px!important;min-height:20px!important;max-width:20px!important;max-height:20px!important;margin:0!important;padding:0!important;flex:0 0 20px!important;font-size:0!important;line-height:1!important}
@@ -3988,13 +4004,13 @@ window.acadexSetIcon = function(el, name, preserveLabel=false) {
 <script id="acadex-mobile-nav-final-script">
 (function(){
   function getNav(){return document.querySelector('.mobile-nav');}
-  const iconNames={home:'Home',workspace:'Exams',students:'Students',teachers:'Teachers'};
+  const iconNames={home:'Home',workspace:'Exams',students:'Students',teachers:'Teachers',settings:'Settings'};
   let lastRole='';
   function build(){
     const nav=getNav(); if(!nav || typeof window.acadexIcon!=='function') return;
     const student=document.body.classList.contains('student-role');
     const role=student?'student':'teacher';
-    const items=student?[['home','Home'],['workspace','Results'],['teachers','Teachers']]:[['home','Home'],['workspace','Exams'],['students','Students']];
+    const items=student?[['home','Home'],['workspace','Results'],['teachers','Teachers'],['settings','Settings']]:[['home','Home'],['workspace','Exams'],['students','Students'],['settings','Settings']];
     nav.innerHTML=items.map(([view,label])=>'<button type="button" data-app-view="'+view+'" aria-label="'+label+'"><span class="mobile-nav-icon">'+window.acadexIcon(view==='workspace'?(student?'Results':'Exams'):iconNames[view])+'</span><span class="mobile-nav-label">'+label+'</span></button>').join('');
     lastRole=role; sync();
   }
@@ -4133,4 +4149,5 @@ button,input,select,textarea{max-width:100%;font:inherit;}
   .home-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));}
 }
 </style>
+
 
