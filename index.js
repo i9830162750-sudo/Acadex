@@ -300,6 +300,10 @@ async function initDatabase(){
     CREATE INDEX IF NOT EXISTS idx_exam_sessions_exam ON exam_sessions(exam_id);
     CREATE INDEX IF NOT EXISTS idx_exam_sessions_device ON exam_sessions(exam_id, device_id);
     CREATE INDEX IF NOT EXISTS idx_exam_sessions_student ON exam_sessions(exam_id, student_id);
+    ALTER TABLE exam_sessions DROP CONSTRAINT IF EXISTS uq_exam_sessions_exam_student;
+    ALTER TABLE exam_sessions DROP CONSTRAINT IF EXISTS uq_exam_sessions_exam_device;
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_exam_sessions_exam_student_active ON exam_sessions(exam_id, student_id) WHERE finished_at IS NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_exam_sessions_exam_device_active ON exam_sessions(exam_id, device_id) WHERE finished_at IS NULL;
     CREATE TABLE IF NOT EXISTS exam_submissions (
       id TEXT PRIMARY KEY, 
       exam_id TEXT NOT NULL REFERENCES exams(id) ON DELETE CASCADE, 
@@ -705,17 +709,29 @@ app.post('/api/exam/:id/session', async(req, res) => {
     }
 
     const activeResult=await pool.query(
-      `SELECT token,student_id,student_name,device_id,started_at,end_at,finished_at
+      `SELECT token,student_id,student_name,device_id,student_user_id,started_at,end_at,finished_at
        FROM exam_sessions
-       WHERE exam_id=$1 AND student_user_id=$2 AND finished_at IS NULL
+       WHERE exam_id=$1 AND finished_at IS NULL
+         AND (student_user_id=$2 OR student_id=$3 OR device_id=$4)
        ORDER BY created_at DESC LIMIT 1`,
-      [exam.id,authUser.id]
+      [exam.id,authUser.id,studentId,deviceId]
     );
     const active=activeResult.rows[0];
     if(active && Date.now()<Number(active.end_at)){
-      return res.status(409).json({
-        error:'You already have an active attempt for this exam. Resume that attempt instead.',
-        sessionToken:active.token
+      if(active.student_user_id && active.student_user_id!==authUser.id){
+        return res.status(409).json({error:'An active attempt for this exam is already associated with another student account.'});
+      }
+      if(!active.student_user_id){
+        await pool.query('UPDATE exam_sessions SET student_user_id=$1 WHERE token=$2',[authUser.id,active.token]);
+      }
+      return res.json({
+        sessionToken:active.token,
+        studentId:active.student_id,
+        studentName:active.student_name,
+        deviceId:active.device_id,
+        startedAt:Number(active.started_at),
+        endAt:Number(active.end_at),
+        ...publicExam(exam)
       });
     }
 
