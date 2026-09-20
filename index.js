@@ -545,6 +545,16 @@ app.post('/api/auth/change-password', async(req,res)=>{ try{ const u=await getAu
 app.get('/api/admin/my-storage', async(req,res)=>{try{
   const u=await getAuthUser(req);if(!u)return res.status(401).json({error:'Not logged in.'});
   const {rows}=await pool.query(`SELECT id,title,type,created_at,content_object_key,pdf_object_key FROM exams WHERE owner_user_id=$1 ORDER BY created_at DESC`,[u.id]);
+
+  /* B2 storage is shared by the whole Acadex bucket, not allocated per teacher.
+     The storage manager therefore calculates the global B2 usage so every
+     teacher sees the same quota/remaining amount. The exam list itself remains
+     account-scoped so teachers can only manage their own exams. */
+  const globalKeysResult=await pool.query(`SELECT content_object_key,pdf_object_key FROM exams WHERE content_object_key IS NOT NULL OR pdf_object_key IS NOT NULL`);
+  const globalKeys=[...new Set(globalKeysResult.rows.map(x=>x.content_object_key||x.pdf_object_key).filter(Boolean))];
+  let globalExamBytes=0;
+  for(const key of globalKeys){try{globalExamBytes+=await getB2ObjectSize(key);}catch(_){}}
+
   const exams=[];
   let totalExamBytes=0;
   for(const r of rows){
@@ -558,7 +568,19 @@ app.get('/api/admin/my-storage', async(req,res)=>{try{
   const byExam=new Map(sub.rows.map(x=>[x.exam_id,{count:Number(x.count||0),bytes:Number(x.bytes||0)}]));
   let totalSubBytes=0;
   for(const e of exams){const x=byExam.get(e.id);if(x){e.submissionCount=x.count;e.submissionBytes=x.bytes;e.totalBytes+=x.bytes;totalSubBytes+=x.bytes;}}
-  res.json({provider:'Backblaze B2',bucket:process.env.B2_BUCKET||null,exams,totalExamBytes,totalSubBytes,totalBytes:totalExamBytes+totalSubBytes});
+  const b2QuotaBytes=10*1024*1024*1024;
+  const b2RemainingBytes=Math.max(0,b2QuotaBytes-globalExamBytes);
+  res.json({
+    provider:'Backblaze B2',
+    bucket:process.env.B2_BUCKET||null,
+    exams,
+    totalExamBytes,
+    totalSubBytes,
+    totalBytes:totalExamBytes+totalSubBytes,
+    globalExamBytes,
+    b2QuotaBytes,
+    b2RemainingBytes
+  });
 }catch(err){console.error(err);res.status(500).json({error:'Could not fetch storage.'});}});
 
 app.get('/api/admin/db-size', async(req,res)=>{ try{ const u=await getAuthUser(req); if(!u)return res.status(401).json({error:'Not logged in.'}); const {rows}=await pool.query("SELECT pg_database_size(current_database()) AS size"); const bytes=Number(rows[0].size); res.json({usedBytes:bytes,version:ACADEX_VERSION}); }catch(err){console.error(err);res.status(500).json({error:'Could not fetch DB size.'});} });
