@@ -41,9 +41,40 @@ const ACADEX_MOBILE_NAV_FIX = `
     box-sizing:border-box!important;
   }
   .content-scroll{
-    padding-bottom:calc(140px + var(--acadex-system-nav-inset, env(safe-area-inset-bottom)))!important;
-    scroll-padding-bottom:calc(140px + var(--acadex-system-nav-inset, env(safe-area-inset-bottom)))!important;
+    padding-bottom:clamp(12px, 2vh, 24px)!important;
+    scroll-padding-bottom:clamp(12px, 2vh, 24px)!important;
   }
+  .home-panel.active{
+    min-height:0!important;
+  }
+  .home-wrap{
+    width:100%!important;
+    max-width:none!important;
+  }
+  .home-hero{
+    padding:clamp(10px,2.5vh,20px) 0 clamp(6px,1.5vh,12px)!important;
+    gap:clamp(8px,2vw,14px)!important;
+  }
+  .home-title{
+    font-size:clamp(1.65rem,7vw,2.05rem)!important;
+    line-height:1.04!important;
+  }
+  .home-sub{
+    font-size:clamp(.78rem,3.4vw,.88rem)!important;
+    line-height:1.4!important;
+    margin-top:7px!important;
+  }
+  .home-context{padding:8px 10px!important;}
+  .home-grid{margin-top:clamp(6px,1.5vh,10px)!important;gap:10px!important;}
+  .home-card{padding:clamp(12px,3.5vw,18px)!important;border-radius:15px!important;}
+  .home-card h3{font-size:clamp(1rem,4.5vw,1.18rem)!important;}
+  .home-card p{font-size:clamp(.74rem,3.2vw,.82rem)!important;line-height:1.4!important;}
+  .home-action{margin-top:clamp(10px,2vh,18px)!important;padding:9px 12px!important;}
+  .home-stat-grid{margin-top:10px!important;gap:8px!important;}
+  .home-stat{padding:10px!important;border-radius:12px!important;}
+  .home-stat-value{font-size:1.15rem!important;}
+  .home-stat-label{font-size:.66rem!important;}
+
 }
 </style>
 <script>
