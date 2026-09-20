@@ -3504,15 +3504,6 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
     accountPasswordToggle.setAttribute('aria-label',showing?'Show password':'Hide password');
     accountPasswordToggle.title=showing?'Show password':'Hide password';
   });
-  document.getElementById('settingsPasswordToggle')?.addEventListener('click',()=>{
-    const input=document.getElementById('settingsNewPassword');
-    const btn=document.getElementById('settingsPasswordToggle');
-    if(!input||!btn) return;
-    const showing=input.type==='text';
-    input.type=showing?'password':'text';
-    btn.setAttribute('aria-label',showing?'Show password':'Hide password');
-    btn.title=showing?'Show password':'Hide password';
-  });
   accountSubmit?.addEventListener('click',async()=>{
     accountError.textContent='';
     const email=accountEmailInput.value.trim().toLowerCase();
@@ -3576,7 +3567,7 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
   }
   document.getElementById('examDeleteCancel')?.addEventListener('click',closeExamDelete);
   document.getElementById('examDeleteConfirm')?.addEventListener('click',()=>deleteTeacherExam(pendingDeleteExamId));
-  document.getElementById('examDeleteOverlay')?.addEventListener('click',e=>{if(e.target.id==='examDeleteOverlay')closeExamDelete()});});
+  document.getElementById('examDeleteOverlay')?.addEventListener('click',e=>{if(e.target.id==='examDeleteOverlay')closeExamDelete()});
   document.getElementById('folderClose')?.addEventListener('click',closeFolderDialog);
   document.getElementById('folderCancel')?.addEventListener('click',closeFolderDialog);
   document.getElementById('folderCreate')?.addEventListener('click',async()=>{await submitNewFolder();closeFolderDialog();});
