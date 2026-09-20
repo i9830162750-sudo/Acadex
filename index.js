@@ -38,15 +38,20 @@ const ACADEX_MOBILE_NAV_FIX = `
     position:fixed!important;
     left:0!important;
     right:0!important;
-    bottom:var(--acadex-system-nav-inset, env(safe-area-inset-bottom))!important;
     top:auto!important;
+    bottom:0!important;
     width:100%!important;
     height:68px!important;
     min-height:68px!important;
     padding:7px 0 7px!important;
+    margin:0!important;
     box-sizing:border-box!important;
     z-index:9999!important;
     flex:0 0 68px!important;
+    transform:translateY(0)!important;
+  }
+  html{
+    --acadex-system-nav-inset:0px!important;
   }
   .content-scroll{
     padding-bottom:calc(80px + var(--acadex-system-nav-inset, env(safe-area-inset-bottom)))!important;
@@ -162,14 +167,13 @@ const ACADEX_MOBILE_NAV_FIX = `
       viewport as a fallback. This is only applied in standalone mode so
       normal browser chrome does not get mistaken for the system nav bar.
     */
-    if(inset<1){
-      var screenH=window.screen&&window.screen.height||0;
-      var viewportH=window.innerHeight||document.documentElement.clientHeight||0;
-      var fallback=screenH-viewportH;
-      if(fallback>0 && fallback<120) inset=fallback;
-    }
-
-    document.documentElement.style.setProperty('--acadex-system-nav-inset',Math.max(0,Math.round(inset))+'px');
+    /*
+      Do not derive the system navigation height from screen.height -
+      innerHeight. Android changes those values between gesture navigation,
+      3-button navigation, keyboard visibility and viewport transitions.
+      The fixed nav is anchored directly to the visual viewport instead.
+    */
+    document.documentElement.style.setProperty('--acadex-system-nav-inset','0px');
   }
 
   window.addEventListener('resize',updateAcadexSystemNavInset,{passive:true});
