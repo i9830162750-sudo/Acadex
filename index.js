@@ -1013,7 +1013,7 @@ app.get('/exam/:id', async(req, res) => {
 .pdf-zoom-controls{display:flex;flex-direction:column;gap:4px;pointer-events:auto}
 .pdf-zoom-btn{width:34px;height:30px;border:1px solid rgba(0,0,0,.1);border-radius:9px;background:rgba(255,255,255,.88);color:#222;font-weight:900;font-size:16px;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.12);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
 .pdf-zoom-btn:active{transform:scale(.95)}
-#app.pdf-mode.pdf-reading .pdf-reader-rail{opacity:0;pointer-events:none}
+#app.pdf-mode.pdf-reading .pdf-reader-rail{opacity:.88;pointer-events:auto}
 #app.pdf-mode.pdf-reading .pdf-zoom-controls{pointer-events:none}
 #app.pdf-mode.pdf-reading .pdf-page-count{background:rgba(30,30,30,.72);color:#fff}
 #app.pdf-mode.pdf-reading .pdf-scroll-track{background:rgba(255,255,255,.18)}
