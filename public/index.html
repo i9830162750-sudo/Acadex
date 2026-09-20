@@ -1054,6 +1054,106 @@ body.student-role .student-only-nav{display:flex!important;}
   .topbar-heading{min-width:0;}
   .exam-builder-progress{display:none!important;}
 }
+</style><style id="acadex-sidebar-final-alignment">
+@media(min-width:601px){
+  /* Keep the rail's icon column stationary while the sidebar opens. */
+  .sidebar{
+    width:68px!important;
+    min-width:68px!important;
+    padding:22px 8px!important;
+    overflow-x:hidden!important;
+    transition:width .22s var(--ease),min-width .22s var(--ease),box-shadow .22s var(--ease)!important;
+  }
+  .sidebar:hover{
+    width:340px!important;
+    min-width:340px!important;
+    padding:22px 8px!important;
+  }
+
+  .sidebar .brand{
+    width:100%!important;
+    justify-content:flex-start!important;
+    padding:6px 8px 22px!important;
+    gap:10px!important;
+  }
+  .sidebar .brand-mark{
+    flex:0 0 34px!important;
+  }
+
+  /* Never let the WORKSPACE heading/text leak out of the collapsed rail. */
+  .sidebar:not(:hover) .nav-group-label,
+  .sidebar:not(:hover) .brand-text,
+  .sidebar:not(:hover) .app-nav-btn>span:not(.app-nav-icon),
+  .sidebar:not(:hover) .nav-step,
+  .sidebar:not(:hover) .server-pill>span:not(.dot){
+    display:none!important;
+    visibility:hidden!important;
+    width:0!important;
+    max-width:0!important;
+    overflow:hidden!important;
+  }
+
+  .sidebar .app-nav,
+  .sidebar .build-nav,
+  .sidebar .sidebar-footer{
+    width:100%!important;
+    min-width:0!important;
+  }
+
+  .sidebar .app-nav-btn{
+    width:100%!important;
+    min-width:0!important;
+    justify-content:flex-start!important;
+    padding:10px 10px!important;
+    margin:0 0 4px!important;
+    gap:11px!important;
+    overflow:hidden!important;
+  }
+  .sidebar .app-nav-icon{
+    flex:0 0 20px!important;
+    width:20px!important;
+    height:20px!important;
+    min-width:20px!important;
+    min-height:20px!important;
+    display:grid!important;
+    place-items:center!important;
+    margin:0!important;
+  }
+
+  /* Expanded text fades/reveals without changing the icon column. */
+  .sidebar .app-nav-btn>span:not(.app-nav-icon){
+    opacity:0!important;
+    visibility:hidden!important;
+    width:0!important;
+    overflow:hidden!important;
+    transition:opacity .16s var(--ease),visibility .16s var(--ease),width .22s var(--ease)!important;
+  }
+  .sidebar:hover .app-nav-btn>span:not(.app-nav-icon){
+    opacity:1!important;
+    visibility:visible!important;
+    width:auto!important;
+  }
+
+  .sidebar .nav-group-label,
+  .sidebar .build-nav,
+  .sidebar .server-pill>span:not(.dot){
+    opacity:0!important;
+    visibility:hidden!important;
+    transition:opacity .16s var(--ease)!important;
+  }
+  .sidebar:hover .nav-group-label,
+  .sidebar:hover .build-nav,
+  .sidebar:hover .server-pill>span:not(.dot){
+    opacity:1!important;
+    visibility:visible!important;
+  }
+
+  .sidebar:not(:hover) .build-nav{
+    height:0!important;
+    margin:0!important;
+    pointer-events:none!important;
+  }
+}
 </style></head>
 <body>
 
