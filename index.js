@@ -373,6 +373,34 @@ app.post('/api/auth/login', async(req,res)=>{ try{ const e=String(req.body?.emai
 app.post('/api/auth/logout', async(req,res)=>{ try{ const raw=String(req.headers.authorization||'').replace(/^Bearer\s+/,'').trim(); if(raw)await pool.query('DELETE FROM auth_sessions WHERE token_hash=$1',[hashToken(raw)]); res.json({ok:true}); }catch(err){res.status(500).json({error:'Could not log out.'});} });
 app.get('/api/auth/me', async(req,res)=>{ try{const u=await getAuthUser(req); if(!u)return res.status(401).json({error:'Not logged in.'}); res.json({user:{id:u.id,role:u.role,email:u.email,displayName:u.display_name,studentId:u.student_id}});}catch(err){res.status(500).json({error:'Could not load account.'});} });
 app.post('/api/auth/change-password', async(req,res)=>{ try{ const u=await getAuthUser(req); if(!u)return res.status(401).json({error:'Not logged in.'}); const current=String(req.body?.currentPassword||''); const next=String(req.body?.newPassword||''); if(!current||!next)return res.status(400).json({error:'Both fields are required.'}); if(next.length<6)return res.status(400).json({error:'New password must be at least 6 characters.'}); const {rows}=await pool.query('SELECT password_hash FROM users WHERE id=$1',[u.id]); if(!rows[0]||!verifyPassword(current,rows[0].password_hash))return res.status(401).json({error:'Current password is incorrect.'}); await pool.query('UPDATE users SET password_hash=$1 WHERE id=$2',[makePasswordHash(next),u.id]); res.json({ok:true}); }catch(err){console.error(err);res.status(500).json({error:'Could not change password.'});} });
+app.get('/api/admin/my-storage', async(req,res)=>{ try{
+  const u=await getAuthUser(req); if(!u)return res.status(401).json({error:'Not logged in.'});
+  const {rows}=await pool.query(`
+    SELECT
+      e.id, e.title, e.type, e.created_at,
+      (octet_length(COALESCE(e.pdf_data_url,'')) + octet_length(COALESCE(e.questions_json,'')) + octet_length(e.title) + octet_length(e.student_password))::bigint AS exam_bytes,
+      COUNT(s.id)::int AS submission_count,
+      COALESCE(SUM(octet_length(COALESCE(s.answers_json,'')) + octet_length(COALESCE(s.results_json,'')))::bigint, 0) AS submission_bytes
+    FROM exams e
+    LEFT JOIN exam_submissions s ON s.exam_id=e.id
+    WHERE e.owner_user_id=$1
+    GROUP BY e.id
+    ORDER BY (octet_length(COALESCE(e.pdf_data_url,'')) + octet_length(COALESCE(e.questions_json,''))) DESC
+  `,[u.id]);
+  const totalExamBytes=rows.reduce((a,r)=>a+Number(r.exam_bytes),0);
+  const totalSubBytes=rows.reduce((a,r)=>a+Number(r.submission_bytes),0);
+  res.json({
+    exams: rows.map(r=>({
+      id:r.id, title:r.title, type:r.type, createdAt:Number(r.created_at),
+      examBytes:Number(r.exam_bytes), submissionCount:Number(r.submission_count),
+      submissionBytes:Number(r.submission_bytes),
+      totalBytes:Number(r.exam_bytes)+Number(r.submission_bytes)
+    })),
+    totalExamBytes, totalSubBytes,
+    totalBytes: totalExamBytes+totalSubBytes
+  });
+}catch(err){console.error(err);res.status(500).json({error:'Could not fetch storage.'});} });
+
 app.get('/api/admin/db-size', async(req,res)=>{ try{ const u=await getAuthUser(req); if(!u)return res.status(401).json({error:'Not logged in.'}); const {rows}=await pool.query("SELECT pg_database_size(current_database()) AS size"); const bytes=Number(rows[0].size); res.json({usedBytes:bytes,version:ACADEX_VERSION}); }catch(err){console.error(err);res.status(500).json({error:'Could not fetch DB size.'});} });
 app.get('/api/teacher/exams', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows}=await pool.query(`SELECT e.id,e.title,e.type,e.duration_ms,e.created_at,e.folder_id,f.name AS folder_name,COUNT(s.token)::int AS attempts FROM exams e LEFT JOIN exam_sessions s ON s.exam_id=e.id LEFT JOIN exam_folders f ON f.id=e.folder_id WHERE e.owner_user_id=$1 GROUP BY e.id,f.name ORDER BY e.created_at DESC`,[u.id]); res.json({exams:rows.map(x=>({...x,durationMs:Number(x.duration_ms),createdAt:Number(x.created_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load exams.'});} });
 
@@ -812,5 +840,6 @@ $('showLogin').addEventListener('click',()=>setAccountMode('login'));$('showRegi
 });
 
 initDatabase().then(()=>{const PORT=process.env.PORT||3000;app.listen(PORT,()=>console.log(`Exam backend listening on port ${PORT}`));}).catch(error=>{console.error('Database initialization failed:',error);process.exit(1)});
+
 
 
