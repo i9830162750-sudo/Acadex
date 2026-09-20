@@ -3618,7 +3618,7 @@ window.acadexSetIcon = function(el, name, preserveLabel=false) {
 (function installAcadexIcons(){
   const navMap = {
     home:'Home', workspace:'Exams', students:'Students', teachers:'Teachers',
-    create:'Plus', settings:'Settings'
+    create:'Plus'
   };
   document.querySelectorAll('.app-nav-btn[data-app-view],.sidebar-settings-btn[data-app-view]').forEach(btn=>{
     const key=btn.dataset.appView, name=navMap[key];
