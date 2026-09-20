@@ -68,7 +68,7 @@ h1{margin:0 0 8px;font-size:28px;letter-spacing:-.02em}
 
   if(!mobile&&standalone){
     status.textContent='Opening Acadex…';
-    setTimeout(function(){location.replace('/?acadexBoot=1')},80);
+    setTimeout(function(){location.replace('/app/desktop')},80);
     return;
   }
 
@@ -103,7 +103,7 @@ h1{margin:0 0 8px;font-size:28px;letter-spacing:-.02em}
       if(r.ok){
         status.textContent='Server is awake. Opening Acadex…';
         clearTimeout(timeout);
-        setTimeout(function(){location.replace('/?acadexBoot=1')},180);
+        setTimeout(function(){location.replace('/app/mobile')},180);
         return;
       }
     }catch(e){}
