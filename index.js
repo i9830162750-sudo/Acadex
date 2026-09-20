@@ -1114,29 +1114,29 @@ async function renderPDF(dataUrl){
   const pdf=await pdfjsLib.getDocument({data:atob(dataUrl.split(',')[1])}).promise;
   let scale=1.35;
   let renderJob=0;
-  let pinchStart=0;
-  let pinchBaseScale=scale;
-  let pinchTargetScale=scale;
-  let pinchFrame=0;
 
   const count=$('pdfPageCount'), thumb=$('pdfScrollThumb');
 
   function updatePdfReaderPosition(){
-    const max=paper.scrollHeight-paper.clientHeight;
-    const ratio=max>0?paper.scrollTop/max:0;
-    const page=Array.from(paper.querySelectorAll('canvas')).reduce((current,canvas,index)=>{
-      return canvas.offsetTop <= paper.scrollTop + paper.clientHeight*.35 ? index+1 : current;
-    },1);
+    const maxY=paper.scrollHeight-paper.clientHeight;
+    const ratioY=maxY>0?paper.scrollTop/maxY:0;
+    const canvases=[...paper.querySelectorAll('canvas')];
+    let page=1;
+    canvases.forEach((canvas,index)=>{
+      if(canvas.offsetTop <= paper.scrollTop + paper.clientHeight*.35) page=index+1;
+    });
     count.textContent=Math.min(pdf.numPages,Math.max(1,page))+' / '+pdf.numPages;
     const track=thumb.parentElement;
     const travel=Math.max(0,track.clientHeight-thumb.offsetHeight);
-    thumb.style.top=(travel*ratio)+'px';
+    thumb.style.top=(travel*ratioY)+'px';
   }
 
-  async function renderPages(preserveRatio){
+  async function renderPages(preservePosition=true){
     const job=++renderJob;
-    const oldMax=paper.scrollHeight-paper.clientHeight;
-    const oldRatio=oldMax>0?paper.scrollTop/oldMax:0;
+    const oldMaxY=paper.scrollHeight-paper.clientHeight;
+    const oldMaxX=paper.scrollWidth-paper.clientWidth;
+    const oldRatioY=oldMaxY>0?paper.scrollTop/oldMaxY:0;
+    const oldRatioX=oldMaxX>0?paper.scrollLeft/oldMaxX:0;
     paper.innerHTML='';
     for(let n=1;n<=pdf.numPages;n++){
       if(job!==renderJob)return;
@@ -1153,57 +1153,138 @@ async function renderPDF(dataUrl){
       await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
     }
     if(job!==renderJob)return;
-    if(preserveRatio){
-      const newMax=paper.scrollHeight-paper.clientHeight;
-      paper.scrollTop=Math.max(0,newMax*oldRatio);
+    if(preservePosition){
+      const newMaxY=paper.scrollHeight-paper.clientHeight;
+      const newMaxX=paper.scrollWidth-paper.clientWidth;
+      paper.scrollTop=Math.max(0,newMaxY*oldRatioY);
+      paper.scrollLeft=Math.max(0,newMaxX*oldRatioX);
     }
     updatePdfReaderPosition();
   }
 
   paper.addEventListener('scroll',updatePdfReaderPosition,{passive:true});
 
-  const setZoom=(next,preserveRatio=true)=>{
+  const setZoom=(next,preservePosition=true)=>{
     scale=Math.min(3,Math.max(.7,Number(next.toFixed(2))));
-    renderPages(preserveRatio);
+    renderPages(preservePosition);
   };
   $('pdfZoomIn').onclick=()=>setZoom(scale+.2,true);
   $('pdfZoomOut').onclick=()=>setZoom(scale-.2,true);
   $('pdfZoomReset').onclick=()=>setZoom(1.35,true);
 
-  /* Keep pinch inside the PDF reader. The browser's page-level pinch zoom is
-     cancelled only while two fingers are touching the PDF; one-finger scrolling
-     remains native and smooth. */
-  paper.addEventListener('touchstart',e=>{
-    if(e.touches.length===2){
-      pinchStart=Math.hypot(
-        e.touches[0].clientX-e.touches[1].clientX,
-        e.touches[0].clientY-e.touches[1].clientY
-      );
+  /*
+    PDF navigation is intentionally implemented as drag-to-pan instead of
+    relying on browser scrolling. This gives desktop click-drag panning and
+    mobile one-finger panning while leaving two fingers available for pinch.
+  */
+  paper.style.touchAction='none';
+  paper.style.cursor='grab';
+
+  const pointers=new Map();
+  let dragPointerId=null;
+  let dragX=0,dragY=0,dragScrollLeft=0,dragScrollTop=0;
+  let pinchStartDistance=0;
+  let pinchBaseScale=scale;
+  let pinchTargetScale=scale;
+  let pinchStartCenterX=0,pinchStartCenterY=0;
+  let pinchStartScrollLeft=0,pinchStartScrollTop=0;
+  let pinchDirty=false;
+
+  const pointerPoint=ev=>({x:ev.clientX,y:ev.clientY});
+  const twoPointerState=()=>{
+    const values=[...pointers.values()];
+    if(values.length<2)return null;
+    const a=values[0],b=values[1];
+    const dx=a.x-b.x,dy=a.y-b.y;
+    return {
+      distance:Math.hypot(dx,dy),
+      centerX:(a.x+b.x)/2,
+      centerY:(a.y+b.y)/2
+    };
+  };
+
+  paper.addEventListener('pointerdown',e=>{
+    if(e.pointerType==='mouse' && e.button!==0)return;
+    pointers.set(e.pointerId,pointerPoint(e));
+    paper.setPointerCapture?.(e.pointerId);
+
+    if(pointers.size===1){
+      dragPointerId=e.pointerId;
+      dragX=e.clientX; dragY=e.clientY;
+      dragScrollLeft=paper.scrollLeft; dragScrollTop=paper.scrollTop;
+      paper.style.cursor='grabbing';
+      return;
+    }
+
+    if(pointers.size===2){
+      dragPointerId=null;
+      const state=twoPointerState();
+      if(!state)return;
+      pinchStartDistance=state.distance;
       pinchBaseScale=scale;
       pinchTargetScale=scale;
+      pinchStartCenterX=state.centerX;
+      pinchStartCenterY=state.centerY;
+      pinchStartScrollLeft=paper.scrollLeft;
+      pinchStartScrollTop=paper.scrollTop;
+      pinchDirty=false;
     }
-  },{passive:true});
+  });
 
-  paper.addEventListener('touchmove',e=>{
-    if(e.touches.length!==2||!pinchStart)return;
-    e.preventDefault();
-    const dist=Math.hypot(
-      e.touches[0].clientX-e.touches[1].clientX,
-      e.touches[0].clientY-e.touches[1].clientY
-    );
-    pinchTargetScale=Math.min(3,Math.max(.7,pinchBaseScale*(dist/pinchStart)));
-  },{passive:false});
+  paper.addEventListener('pointermove',e=>{
+    if(!pointers.has(e.pointerId))return;
+    pointers.set(e.pointerId,pointerPoint(e));
 
-  paper.addEventListener('touchend',e=>{
-    if(e.touches.length<2&&pinchStart){
-      pinchStart=0;
-      if(Math.abs(pinchTargetScale-scale)>0.01)setZoom(pinchTargetScale,true);
+    if(pointers.size>=2 && pinchStartDistance){
+      e.preventDefault();
+      const state=twoPointerState();
+      if(!state)return;
+      pinchTargetScale=Math.min(3,Math.max(.7,pinchBaseScale*(state.distance/pinchStartDistance)));
+      paper.scrollLeft=pinchStartScrollLeft-(state.centerX-pinchStartCenterX);
+      paper.scrollTop=pinchStartScrollTop-(state.centerY-pinchStartCenterY);
+      pinchDirty=Math.abs(pinchTargetScale-scale)>.01;
+      updatePdfReaderPosition();
+      return;
     }
-  },{passive:true});
-  paper.addEventListener('touchcancel',()=>{
-    if(pinchStart && Math.abs(pinchTargetScale-scale)>0.01)setZoom(pinchTargetScale,true);
-    pinchStart=0;
-  },{passive:true});
+
+    if(dragPointerId===e.pointerId){
+      e.preventDefault();
+      paper.scrollLeft=dragScrollLeft-(e.clientX-dragX);
+      paper.scrollTop=dragScrollTop-(e.clientY-dragY);
+      updatePdfReaderPosition();
+    }
+  });
+
+  const finishPointer=e=>{
+    pointers.delete(e.pointerId);
+    try{paper.releasePointerCapture?.(e.pointerId)}catch(_){}
+
+    if(pointers.size===0){
+      if(pinchStartDistance){
+        const target=pinchTargetScale;
+        pinchStartDistance=0;
+        if(pinchDirty)setZoom(target,true);
+      }
+      dragPointerId=null;
+      paper.style.cursor='grab';
+      return;
+    }
+
+    if(pointers.size===1){
+      pinchStartDistance=0;
+      const remaining=[...pointers.entries()][0];
+      dragPointerId=remaining[0];
+      const p=remaining[1];
+      dragX=p.x; dragY=p.y;
+      dragScrollLeft=paper.scrollLeft; dragScrollTop=paper.scrollTop;
+      paper.style.cursor='grabbing';
+    }
+  };
+  paper.addEventListener('pointerup',finishPointer);
+  paper.addEventListener('pointercancel',finishPointer);
+  paper.addEventListener('pointerleave',e=>{
+    if(e.pointerType==='mouse' && pointers.has(e.pointerId))finishPointer(e);
+  });
 
   await renderPages(false);
 }
