@@ -483,12 +483,16 @@ app.delete('/api/auth/account', async(req,res)=>{
     if(!rows[0]||!verifyPassword(password,rows[0].password_hash))return res.status(401).json({error:'Password is incorrect.'});
 
     await client.query('BEGIN');
+    const ownedExams=await client.query('SELECT pdf_object_key FROM exams WHERE owner_user_id=$1 AND pdf_object_key IS NOT NULL',[u.id]);
     await client.query('DELETE FROM exams WHERE owner_user_id=$1',[u.id]);
     await client.query('DELETE FROM exam_submissions WHERE student_user_id=$1',[u.id]);
     await client.query('DELETE FROM exam_sessions WHERE student_user_id=$1',[u.id]);
     await client.query('DELETE FROM auth_sessions WHERE user_id=$1',[u.id]);
     await client.query('DELETE FROM users WHERE id=$1',[u.id]);
     await client.query('COMMIT');
+    for(const row of ownedExams.rows){
+      try{await deletePdfFromB2(row.pdf_object_key);}catch(error){console.error('Could not delete account PDF from B2:',error);}
+    }
     res.json({ok:true});
   }catch(err){
     try{await client.query('ROLLBACK')}catch(_){}
