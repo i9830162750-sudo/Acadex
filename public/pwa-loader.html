@@ -28,7 +28,7 @@ h1{margin:0 0 8px;font-size:28px;letter-spacing:-.02em}
   <div class="spinner" id="spinner"></div>
   <div id="install">
     <button id="installBtn" type="button">Install Acadex</button>
-    <div class="hint" id="hint">If the button does not appear, use your browser menu and choose “Add to Home screen” or “Install app”.</div>
+    <div class="hint" id="hint">If the button does not appear, use your browser menu and choose "Add to Home screen" or "Install app".</div>
   </div>
 </main>
 <script>
@@ -42,7 +42,31 @@ h1{margin:0 0 8px;font-size:28px;letter-spacing:-.02em}
   var btn=document.getElementById('installBtn');
   var deferred=null;
 
-  if(!mobile){
+  if(!mobile&&!standalone){
+    // Desktop browser (not installed) — ping before redirecting so Render cold start is hidden
+    title.textContent='Waking Acadex…';
+    status.textContent='Connecting to the Acadex server. This can take a moment after Render has been idle.';
+    async function pingDesktop(){
+      var controller=new AbortController();
+      var timeout=setTimeout(function(){controller.abort()},8000);
+      try{
+        var r=await fetch('/api/health',{cache:'no-store',signal:controller.signal});
+        if(r.ok){
+          status.textContent='Server is awake. Opening Acadex…';
+          clearTimeout(timeout);
+          setTimeout(function(){location.replace('/?acadexBoot=1')},180);
+          return;
+        }
+      }catch(e){}
+      clearTimeout(timeout);
+      status.textContent='Server is waking up… checking again in 10 seconds.';
+      setTimeout(pingDesktop,10000);
+    }
+    pingDesktop();
+    return;
+  }
+
+  if(!mobile&&standalone){
     status.textContent='Opening Acadex…';
     setTimeout(function(){location.replace('/?acadexBoot=1')},80);
     return;
@@ -63,7 +87,7 @@ h1{margin:0 0 8px;font-size:28px;letter-spacing:-.02em}
         await deferred.userChoice;
         deferred=null;
       }else{
-        document.getElementById('hint').textContent='Open your browser menu and choose “Add to Home screen” or “Install app”.';
+        document.getElementById('hint').textContent='Open your browser menu and choose "Add to Home screen" or "Install app".';
       }
     });
     return;
