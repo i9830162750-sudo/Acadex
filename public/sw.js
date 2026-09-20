@@ -1,4 +1,4 @@
-const CACHE = 'acadex-v-20260920-4';
+const CACHE = 'acadex-v-20260920-5';
 const STATIC_ASSETS = [
   '/',
   '/install',
@@ -17,6 +17,7 @@ self.addEventListener('install', event => {
       );
     })
   );
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {
@@ -42,22 +43,40 @@ self.addEventListener('fetch', event => {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
   if (url.origin !== self.location.origin) return;
 
-  if (
-    url.pathname.startsWith('/api/') ||
-    url.hostname.includes('googleapis.com') ||
-    url.hostname.includes('googleusercontent.com') ||
-    url.hostname.includes('fonts.googleapis.com') ||
-    url.hostname.includes('fonts.gstatic.com') ||
-    url.hostname.includes('youtube.com') ||
-    url.hostname.includes('ytimg.com')
-  ) {
+  // Never intercept API calls — always go straight to network
+  if (url.pathname.startsWith('/api/')) return;
+
+  // Navigation to / or /install — always serve from cache immediately.
+  // pwa-loader.html handles the health check client-side before redirecting
+  // to the real app, so Render's cold start is never exposed here.
+  if (url.pathname === '/' || url.pathname === '/install') {
+    event.respondWith(
+      caches.match(event.request).then(cached => {
+        if (cached) return cached;
+        // Not cached yet — fetch and cache it
+        return fetch(event.request).then(response => {
+          if (response && response.status === 200 && response.type !== 'opaque') {
+            const copy = response.clone();
+            caches.open(CACHE).then(c => c.put(event.request, copy));
+          }
+          return response;
+        });
+      })
+    );
     return;
   }
 
-  // App-shell/navigation routes use network-first while online and fall
-  // back to the cached shell when Render is unavailable or the device is
-  // offline. The app itself no longer performs a startup Render health check.
-  if (url.pathname === '/app/acadex-app-7f3c9e21' || url.pathname === '/install' || url.pathname === '/') {
+  // Static assets — cache-first
+  const isStatic = STATIC_ASSETS.some(path => url.pathname === path);
+  if (isStatic) {
+    event.respondWith(
+      caches.match(event.request).then(cached => cached || fetch(event.request))
+    );
+    return;
+  }
+
+  // App pages (/app/...) — network-first, fall back to cache
+  if (url.pathname.startsWith('/app/')) {
     event.respondWith(
       fetch(event.request)
         .then(response => {
@@ -77,14 +96,7 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  const isStatic = STATIC_ASSETS.some(path => url.pathname === path);
-  if (isStatic) {
-    event.respondWith(
-      caches.match(event.request).then(cached => cached || fetch(event.request))
-    );
-    return;
-  }
-
+  // Everything else — network-first with cache fallback
   event.respondWith(
     fetch(event.request)
       .then(response => {
