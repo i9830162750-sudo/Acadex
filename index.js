@@ -835,13 +835,16 @@ app.post('/api/exam/:id/session', async(req, res) => {
       return res.status(409).json({error:'You have already completed this exam.'});
     }
 
+    // An active attempt belongs to the authenticated student account only.
+    // Do NOT match on student_id or device_id: class/student IDs can be shared
+    // between accounts, and the same device can legitimately be used by
+    // different students taking the same exam.
     const activeResult=await pool.query(
       `SELECT token,student_id,student_name,device_id,student_user_id,started_at,end_at,finished_at
        FROM exam_sessions
-       WHERE exam_id=$1 AND finished_at IS NULL
-         AND (student_user_id=$2 OR student_id=$3 OR device_id=$4)
+       WHERE exam_id=$1 AND finished_at IS NULL AND student_user_id=$2
        ORDER BY created_at DESC LIMIT 1`,
-      [exam.id,authUser.id,studentId,deviceId]
+      [exam.id,authUser.id]
     );
     const active=activeResult.rows[0];
     if(active && Date.now()<Number(active.end_at)){
