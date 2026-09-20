@@ -1028,7 +1028,7 @@ app.get('/exam/:id', async(req, res) => {
 #app.pdf-mode .top{position:fixed;top:14px;left:50%;z-index:20;width:min(900px,calc(100% - 28px));margin:0;transform:translateX(-50%);padding:11px 14px;background:rgba(255,255,255,.84);border:1px solid rgba(0,0,0,.1);border-radius:16px;box-shadow:0 12px 35px rgba(0,0,0,.14);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);transition:opacity .35s ease,transform .35s ease,filter .35s ease}
 #app.pdf-mode .paper{width:100%;max-width:none;height:100dvh;margin:0;padding:88px 18px 60px;overflow-y:auto;overscroll-behavior:contain;border-radius:0;box-shadow:none;background:#f2f1ef}
 #app.pdf-mode #paper{overflow-x:auto;overflow-y:auto;touch-action:pan-x pan-y}
-#app.pdf-mode #paper canvas{display:block;width:auto!important;max-width:none!important;height:auto!important;margin:0 auto 22px;touch-action:pan-x pan-y}
+#app.pdf-mode #paper canvas{display:block;width:auto;max-width:none;height:auto;margin:0 auto 22px;touch-action:pan-x pan-y}
 #app.pdf-mode.pdf-reading .top{opacity:0;transform:translate(-50%,-18px);pointer-events:none}
 #app.pdf-mode.pdf-reading{background:#111}
 #app.pdf-mode.pdf-reading .paper{background:#111}
@@ -1036,14 +1036,14 @@ app.get('/exam/:id', async(req, res) => {
 #app.pdf-mode .paper{scrollbar-width:none;-ms-overflow-style:none;position:relative}
 #app.pdf-mode .paper::-webkit-scrollbar{display:none}
 .pdf-reader-rail{position:fixed;right:10px;top:50%;z-index:2147483000;transform:translateY(-50%);width:38px;display:flex;flex-direction:column;align-items:center;gap:8px;opacity:1;transition:opacity .35s ease;pointer-events:auto}
-.pdf-page-count{min-width:34px;padding:5px 6px;border-radius:8px;background:rgba(255,255,255,.88);color:#222;font-size:11px;font-weight:800;text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.14);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.pdf-page-count{min-width:42px;padding:6px 5px;border-radius:9px;background:rgba(255,255,255,.88);color:#222;font-size:11px;font-weight:800;text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.14);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.pdf-page-label{display:block;margin-bottom:5px;font-size:10px;line-height:1}
+.pdf-page-list{display:flex;flex-direction:column;gap:2px;align-items:center}
+.pdf-page-chip{width:30px;height:22px;padding:0;border:0;border-radius:6px;background:transparent;color:inherit;font:800 10px Inter,sans-serif;cursor:pointer}
+.pdf-page-chip:hover{background:rgba(0,0,0,.08)}
+.pdf-page-chip.active{background:var(--accent);color:#fff}
 .pdf-scroll-track{width:5px;height:min(52vh,420px);border-radius:99px;background:rgba(0,0,0,.14);position:relative}
 .pdf-scroll-thumb{position:absolute;left:0;width:100%;min-height:30px;border-radius:99px;background:rgba(30,30,30,.6);transition:top .08s linear}
-.pdf-scroll-markers{position:absolute;inset:0;pointer-events:none}
-.pdf-scroll-marker{position:absolute;left:50%;width:9px;height:9px;padding:0;transform:translate(-50%,-50%);border:1px solid rgba(255,255,255,.85);border-radius:50%;background:rgba(30,30,30,.72);cursor:pointer;pointer-events:auto;box-shadow:0 2px 6px rgba(0,0,0,.18)}
-.pdf-scroll-marker:hover{transform:translate(-50%,-50%) scale(1.25);background:#fff;color:#111}
-#app.pdf-mode.pdf-reading .pdf-reader-rail{opacity:.88;pointer-events:auto}
-#app.pdf-mode.pdf-reading .pdf-scroll-marker{background:rgba(255,255,255,.7);border-color:rgba(255,255,255,.9)}
 
 .pdf-zoom-controls{display:flex;flex-direction:column;gap:4px;pointer-events:auto}
 .pdf-zoom-btn{width:34px;height:30px;border:1px solid rgba(0,0,0,.1);border-radius:9px;background:rgba(255,255,255,.88);color:#222;font-weight:900;font-size:16px;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.12);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
@@ -1175,13 +1175,13 @@ async function showExam(d){examData=d;$('portal').style.display='none';$('app').
 async function renderPDF(dataUrl){
   const paper=$('paper'); paper.innerHTML='';
   const rail=document.createElement('div'); rail.className='pdf-reader-rail';
-  rail.innerHTML='<div class="pdf-page-count" id="pdfPageCount">1 / 1</div><div class="pdf-scroll-track"><div class="pdf-scroll-thumb" id="pdfScrollThumb"></div><div class="pdf-scroll-markers" id="pdfScrollMarkers"></div></div><div class="pdf-zoom-controls"><button class="pdf-zoom-btn" id="pdfZoomIn" type="button" aria-label="Zoom in">+</button><button class="pdf-zoom-btn" id="pdfZoomOut" type="button" aria-label="Zoom out">−</button><button class="pdf-zoom-btn" id="pdfZoomReset" type="button" aria-label="Reset zoom">↺</button></div>';
+  rail.innerHTML='<div class="pdf-page-count" id="pdfPageCount"><span class="pdf-page-label">1 / 1</span><div class="pdf-page-list" id="pdfPageList"></div></div><div class="pdf-scroll-track"><div class="pdf-scroll-thumb" id="pdfScrollThumb"></div></div><div class="pdf-zoom-controls"><button class="pdf-zoom-btn" id="pdfZoomIn" type="button" aria-label="Zoom in">+</button><button class="pdf-zoom-btn" id="pdfZoomOut" type="button" aria-label="Zoom out">−</button><button class="pdf-zoom-btn" id="pdfZoomReset" type="button" aria-label="Reset zoom">↺</button></div>';
   $('app').appendChild(rail);
 
   const pdf=await pdfjsLib.getDocument({data:atob(dataUrl.split(',')[1])}).promise;
   const renderScale=2.25;
   let zoomScale=1.35;
-  const count=$('pdfPageCount'), thumb=$('pdfScrollThumb'), markers=$('pdfScrollMarkers');
+  const count=$('pdfPageCount'), pageLabel=$('pdfPageCount').querySelector('.pdf-page-label'), pageList=$('pdfPageList'), thumb=$('pdfScrollThumb');
 
   function updatePdfReaderPosition(){
     const maxY=paper.scrollHeight-paper.clientHeight;
@@ -1192,7 +1192,22 @@ async function renderPDF(dataUrl){
       if(canvas.offsetTop <= paper.scrollTop + paper.clientHeight*.35) page=index+1;
     });
     page=Math.min(pdf.numPages,Math.max(1,page));
-    count.textContent=page+' / '+pdf.numPages;
+    pageLabel.textContent=page+' / '+pdf.numPages;
+    pageList.innerHTML='';
+    const startPage=Math.max(1,Math.min(page-2,Math.max(1,pdf.numPages-4)));
+    const endPage=Math.min(pdf.numPages,startPage+4);
+    for(let p=startPage;p<=endPage;p++){
+      const chip=document.createElement('button');
+      chip.type='button';
+      chip.className='pdf-page-chip'+(p===page?' active':'');
+      chip.textContent=String(p);
+      chip.title='Go to page '+p;
+      chip.addEventListener('click',()=>{
+        const target=paper.querySelector('canvas[data-page="'+p+'"]');
+        if(target)paper.scrollTop=Math.max(0,target.offsetTop-paper.clientHeight*.08);
+      });
+      pageList.appendChild(chip);
+    }
     const track=thumb.parentElement;
     const travel=Math.max(0,track.clientHeight-thumb.offsetHeight);
     thumb.style.top=(travel*ratioY)+'px';
@@ -1242,25 +1257,6 @@ async function renderPDF(dataUrl){
     canvas.style.display='block';
     paper.appendChild(canvas);
     await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
-  }
-
-  // Five useful jump markers, like intermediate steps on a document rail.
-  if(markers){
-    markers.innerHTML='';
-    const steps=5;
-    for(let i=1;i<=steps;i++){
-      const marker=document.createElement('button');
-      marker.type='button';
-      marker.className='pdf-scroll-marker';
-      marker.style.top=(i/(steps+1)*100)+'%';
-      marker.setAttribute('aria-label','Jump to '+Math.round(i/(steps+1)*100)+'% of document');
-      marker.addEventListener('click',()=>{
-        const max=paper.scrollHeight-paper.clientHeight;
-        paper.scrollTop=max*(i/(steps+1));
-        updatePdfReaderPosition();
-      });
-      markers.appendChild(marker);
-    }
   }
 
   paper.addEventListener('scroll',updatePdfReaderPosition,{passive:true});
