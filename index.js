@@ -671,6 +671,18 @@ app.post('/api/exam/:id/finish', async(req, res) => {
   }catch(error){console.error('Finish exam error:', error);res.status(500).json({error:'Failed to submit exam'});}
 });
 
+app.get('/api/exam/:id/attempts', async(req,res) => {
+  try{
+    const authUser=await getAuthUser(req);
+    if(!authUser || authUser.role!=='student') return res.status(401).json({error:'Student account login is required.'});
+    const exam=await getExam(req.params.id); if(!exam) return res.status(404).json({error:'Exam not found'});
+    const {rows}=await pool.query(`SELECT s.id,s.public_result_token,s.score,s.total,s.percentage,s.submitted_at,
+      ROW_NUMBER() OVER (ORDER BY s.submitted_at ASC)::int AS attempt_number
+      FROM exam_submissions s WHERE s.exam_id=$1 AND s.student_user_id=$2 ORDER BY s.submitted_at DESC`,[exam.id,authUser.id]);
+    res.json({exam:{id:exam.id,title:exam.title,allowRetake:Boolean(exam.allow_retake),maxAttempts:exam.max_attempts===null?null:Number(exam.max_attempts)},attemptCount:rows.length,attempts:rows.map(x=>({id:x.id,attemptNumber:Number(x.attempt_number),score:Number(x.score),total:Number(x.total),percentage:Number(x.percentage),submittedAt:Number(x.submitted_at),publicResultUrl:x.public_result_token?((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(x.public_result_token)}`):null}))});
+  }catch(err){console.error(err);res.status(500).json({error:'Could not load attempts.'});}
+});
+
 app.get('/api/exam/:id/result/:token', async(req, res) => {
   try{
     const authUser=await getAuthUser(req);
@@ -686,6 +698,8 @@ app.get('/result/:publicToken', async(req, res) => {
   try{
     const {rows}=await pool.query(`
       SELECT s.id,s.student_id,s.student_name,s.score,s.total,s.percentage,s.results_json,s.submitted_at,
+             ROW_NUMBER() OVER (PARTITION BY s.student_user_id ORDER BY s.submitted_at ASC)::int AS attempt_number,
+             COUNT(*) OVER (PARTITION BY s.student_user_id)::int AS attempt_count,
              u.email AS student_email,e.title AS exam_title
       FROM exam_submissions s
       JOIN exams e ON e.id=s.exam_id
@@ -704,7 +718,7 @@ app.get('/result/:publicToken', async(req, res) => {
     res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Result — ${escapeHtml(s.exam_title)}</title>
 <style>
 :root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#171615;background:#f2f1ef}*{box-sizing:border-box}body{margin:0;padding:28px}.wrap{max-width:900px;margin:0 auto}.head,.q{background:#fff;border:1px solid #ddd;border-radius:16px;padding:22px;margin-bottom:14px;box-shadow:0 6px 24px #00000008}.head h1{margin:0 0 8px;font-size:28px}.muted{color:#666}.meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:18px}.meta div{background:#f7f7f7;border-radius:10px;padding:12px}.meta span{display:block;color:#777;font-size:12px}.meta strong{display:block;margin-top:4px}.score{font-size:42px;font-weight:900;margin-top:12px}.q.correct{border-left:5px solid #18864b}.q.wrong{border-left:5px solid #c43d3d}.status{font-weight:800;margin-bottom:8px}.correct .status{color:#18864b}.wrong .status{color:#c43d3d}.q h3{margin:0 0 12px;line-height:1.4}.q p{line-height:1.5}.footer{color:#777;font-size:12px;margin-top:18px}@media(max-width:650px){body{padding:12px}.meta{grid-template-columns:1fr}.score{font-size:34px}}
-</style></head><body><main class="wrap"><section class="head"><h1>${escapeHtml(s.exam_title)}</h1><div class="muted">Shared exam result</div><div class="score">${Number(s.score)||0} / ${Number(s.total)||0}</div><div class="muted">${Number(s.percentage||0).toFixed(1)}% · submitted ${new Date(Number(s.submitted_at)).toLocaleString()}</div><div class="meta"><div><span>Student name</span><strong>${escapeHtml(s.student_name)}</strong></div>${emailRow}</div></section><section>${resultHtml||'<div class="q"><p>No question-level result data is available.</p></div>'}</section><div class="footer">Anyone with this link can view this shared result.</div></main></body></html>`);
+</style></head><body><main class="wrap"><section class="head"><h1>${escapeHtml(s.exam_title)}</h1><div class="muted">Shared exam result</div><div class="score">${Number(s.score)||0} / ${Number(s.total)||0}</div><div class="muted">${Number(s.percentage||0).toFixed(1)}% · Attempt ${Number(s.attempt_number)||1} of ${Number(s.attempt_count)||1} · submitted ${new Date(Number(s.submitted_at)).toLocaleString()}</div><div class="meta"><div><span>Student name</span><strong>${escapeHtml(s.student_name)}</strong></div>${emailRow}</div></section><section>${resultHtml||'<div class="q"><p>No question-level result data is available.</p></div>'}</section><div class="footer">Anyone with this link can view this shared result.</div></main></body></html>`);
   }catch(err){console.error(err);res.status(500).type('html').send('<h1>Could not load result</h1>');}
 });
 
