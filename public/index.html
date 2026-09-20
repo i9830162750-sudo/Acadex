@@ -1170,6 +1170,39 @@ body.student-role .student-only-nav{display:flex!important;}
     pointer-events:none!important;
   }
 }
+</style><style id="acadex-sidebar-final-button-alignment">
+@media(min-width:601px){
+  .sidebar .app-nav-btn{
+    position:relative!important;
+    display:flex!important;
+    flex-direction:row!important;
+    align-items:center!important;
+    justify-content:flex-start!important;
+    text-align:left!important;
+  }
+  .sidebar .app-nav-icon{
+    display:grid!important;
+    place-items:center!important;
+    align-self:center!important;
+    flex:0 0 20px!important;
+    width:20px!important;
+    height:20px!important;
+    min-width:20px!important;
+    min-height:20px!important;
+    line-height:1!important;
+    margin:0!important;
+  }
+  .sidebar:not(:hover) .app-nav-btn{
+    justify-content:flex-start!important;
+    align-items:center!important;
+    padding-left:10px!important;
+    padding-right:10px!important;
+  }
+  .sidebar:not(:hover) .app-nav-icon{
+    margin-left:0!important;
+    margin-right:0!important;
+  }
+}
 </style></head>
 <body>
 
@@ -1966,6 +1999,11 @@ body.student-role .student-only-nav{display:flex!important;}
 
     loggedInPanel?.classList.remove('app-page-visible');
     teacherDash?.classList.remove('app-page-visible');
+    /* Settings is a separate overlay/page layer; always close it before switching views. */
+    const settingsOverlay = document.getElementById('settingsOverlay');
+    settingsOverlay?.classList.remove('open');
+    settingsOverlay?.setAttribute('aria-hidden','true');
+    document.getElementById('appSettings')?.classList.remove('active');
     studentDash?.classList.remove('app-page-visible');
     studentTeachersPage?.classList.remove('app-page-visible');
     examsView?.classList.remove('app-subview-visible');
@@ -4326,7 +4364,10 @@ window.acadexSetIcon = function(el, name, preserveLabel=false) {
 
   /* Mark only explicit New/Create actions as fresh builds. Edit actions also open the
      builder, but must preserve the exam that was just loaded. */
-  document.getElementById('mobileCreateExamFab')?.addEventListener('click',()=>document.querySelector('.app-nav-btn[data-app-view="create"]')?.click());
+  document.getElementById('mobileCreateExamFab')?.addEventListener('click',()=>{
+    if(typeof window.showAppView==='function') window.showAppView('create');
+    else if(typeof showAppView==='function') showAppView('create');
+  });
 
   document.getElementById('settingsClose')?.addEventListener('click',()=>{if(typeof window.showAppView==='function')window.showAppView('home');});
 
