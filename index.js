@@ -1,4 +1,5 @@
 const express = require('express');
+const ACADEX_VERSION = 'v2.4.9';
 const cors = require('cors');
 const crypto = require('crypto');
 const path = require('path');
@@ -372,6 +373,7 @@ app.post('/api/auth/login', async(req,res)=>{ try{ const e=String(req.body?.emai
 app.post('/api/auth/logout', async(req,res)=>{ try{ const raw=String(req.headers.authorization||'').replace(/^Bearer\s+/,'').trim(); if(raw)await pool.query('DELETE FROM auth_sessions WHERE token_hash=$1',[hashToken(raw)]); res.json({ok:true}); }catch(err){res.status(500).json({error:'Could not log out.'});} });
 app.get('/api/auth/me', async(req,res)=>{ try{const u=await getAuthUser(req); if(!u)return res.status(401).json({error:'Not logged in.'}); res.json({user:{id:u.id,role:u.role,email:u.email,displayName:u.display_name,studentId:u.student_id}});}catch(err){res.status(500).json({error:'Could not load account.'});} });
 app.post('/api/auth/change-password', async(req,res)=>{ try{ const u=await getAuthUser(req); if(!u)return res.status(401).json({error:'Not logged in.'}); const current=String(req.body?.currentPassword||''); const next=String(req.body?.newPassword||''); if(!current||!next)return res.status(400).json({error:'Both fields are required.'}); if(next.length<6)return res.status(400).json({error:'New password must be at least 6 characters.'}); const {rows}=await pool.query('SELECT password_hash FROM users WHERE id=$1',[u.id]); if(!rows[0]||!verifyPassword(current,rows[0].password_hash))return res.status(401).json({error:'Current password is incorrect.'}); await pool.query('UPDATE users SET password_hash=$1 WHERE id=$2',[makePasswordHash(next),u.id]); res.json({ok:true}); }catch(err){console.error(err);res.status(500).json({error:'Could not change password.'});} });
+app.get('/api/admin/db-size', async(req,res)=>{ try{ const u=await getAuthUser(req); if(!u)return res.status(401).json({error:'Not logged in.'}); const {rows}=await pool.query("SELECT pg_database_size(current_database()) AS size"); const bytes=Number(rows[0].size); res.json({usedBytes:bytes,version:ACADEX_VERSION}); }catch(err){console.error(err);res.status(500).json({error:'Could not fetch DB size.'});} });
 app.get('/api/teacher/exams', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows}=await pool.query(`SELECT e.id,e.title,e.type,e.duration_ms,e.created_at,e.folder_id,f.name AS folder_name,COUNT(s.token)::int AS attempts FROM exams e LEFT JOIN exam_sessions s ON s.exam_id=e.id LEFT JOIN exam_folders f ON f.id=e.folder_id WHERE e.owner_user_id=$1 GROUP BY e.id,f.name ORDER BY e.created_at DESC`,[u.id]); res.json({exams:rows.map(x=>({...x,durationMs:Number(x.duration_ms),createdAt:Number(x.created_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load exams.'});} });
 
 app.get('/api/teacher/folders', async(req,res)=>{
@@ -539,7 +541,7 @@ app.get('/api/teacher/students/:studentId/results/:submissionId', async(req,res)
   }catch(err){console.error(err);res.status(500).json({error:'Could not load result.'});}
 });
 app.get('/ping', (req, res) => res.json({ok:true, ts:Date.now()}));
-app.get('/api/health', (req, res) => res.json({ok:true, ts:Date.now()}));
+app.get('/api/health', (req, res) => res.json({ok:true, ts:Date.now(), version:ACADEX_VERSION}));
 
 app.post('/exam/create', async(req, res) => {
   try{
@@ -810,4 +812,5 @@ $('showLogin').addEventListener('click',()=>setAccountMode('login'));$('showRegi
 });
 
 initDatabase().then(()=>{const PORT=process.env.PORT||3000;app.listen(PORT,()=>console.log(`Exam backend listening on port ${PORT}`));}).catch(error=>{console.error('Database initialization failed:',error);process.exit(1)});
+
 
