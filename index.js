@@ -32,6 +32,15 @@ const ACADEX_MOBILE_NAV_FIX = `
     padding-bottom:calc(140px + env(safe-area-inset-bottom))!important;
     scroll-padding-bottom:calc(140px + env(safe-area-inset-bottom))!important;
   }
+  /* Android system navigation bar: keep the whole Acadex UI above the bottom buttons. */
+  .app{
+    height:calc(100dvh - 48px)!important;
+    min-height:calc(100dvh - 48px)!important;
+  }
+  .main{
+    height:calc(100dvh - 48px)!important;
+    min-height:calc(100dvh - 48px)!important;
+  }
 }
 </style>`;
 
