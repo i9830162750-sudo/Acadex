@@ -913,12 +913,22 @@ async function startSession(){
     if(!resumeToken) throw new Error('Please sign in to your student account to resume this exam.');
     studentAuthToken=resumeToken;
     const r=await fetch(API+'/session', {method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentAuthToken}, body:JSON.stringify({sessionToken:old.sessionToken, deviceId:did, studentId:old.studentId, studentName:old.studentName})});
-    if(r.ok){const d=await r.json();session={...old, ...d, studentAuthToken, answers:old.answers||{}};return d}
+    const d=await r.json().catch(()=>({}));
+    if(r.ok){
+      if(!d.sessionToken) throw new Error('The server did not return a session token. Please try again.');
+      session={...old, ...d, studentAuthToken, answers:old.answers||{}};
+      await save({...session,examId:EXAM_ID});
+      return d;
+    }
     if(r.status === 410){throw new Error('This exam attempt is already finished.')}
+    // If the saved session is stale/invalid, fall through and create a fresh
+    // active session after verifying the exam password.
   }
   const body={deviceId:did, password:$('pwd').value};
   const r=await fetch(API+'/session', {method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentAuthToken}, body:JSON.stringify(body)});
-  const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not start exam');
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(d.error||'Could not start exam');
+  if(!d.sessionToken)throw new Error('The server did not return a session token. Please try again.');
   session={...d, studentAuthToken, answers:{}};await save({...session, examId:EXAM_ID});return d;
 }
 function renderTemplate(){
@@ -947,7 +957,7 @@ function startTimer(){clearInterval(timerId);timerId=setInterval(async() => {con
 async function showExam(d){examData=d;$('portal').style.display='none';$('app').style.display='block';$('examTitle').textContent=d.title||EXAM_TITLE;if(d.type === 'template')renderTemplate();else await renderPDF(d.pdfDataUrl);startTimer()}
 async function renderPDF(dataUrl){$('paper').innerHTML='';const pdf=await pdfjsLib.getDocument({data:atob(dataUrl.split(',')[1])}).promise;for(let n=1;n<=pdf.numPages;n++){const page=await pdf.getPage(n), vp=page.getViewport({scale:1.35}), canvas=document.createElement('canvas');canvas.width=vp.width;canvas.height=vp.height;canvas.style.width='100%';canvas.style.height='auto';$('paper').appendChild(canvas);await page.render({canvasContext:canvas.getContext('2d'), viewport:vp}).promise}}
 let accountMode='login';function setAccountMode(mode){accountMode=mode;$('err').textContent='';const register=mode==='register';$('studentName').classList.toggle('hidden',!register);$('studentId').classList.toggle('hidden',!register);$('studentLogin').textContent=register?'Create Student Account':'Sign in as Student';$('showLogin').style.background=register?'#2a2927':'';$('showLogin').style.color=register?'#fff':'';$('showRegister').style.background=register?'':'#2a2927';$('showRegister').style.color=register?'':'#fff';$('accountPrompt').textContent=register?'Create your student account, then enter the exam password.':'Sign in with your student account, or create one if you don’t have an account yet.';}async function loginStudent(){const btn=$('studentLogin');$('err').textContent='';btn.disabled=true;btn.textContent=accountMode==='register'?'Creating…':'Signing in…';try{const email=$('studentEmail').value.trim().toLowerCase(),password=$('studentPassword').value;if(!email||!password)throw new Error('Enter your student account email and password.');let d;if(accountMode==='register'){const name=$('studentName').value.trim(),studentId=$('studentId').value.trim();if(!name)throw new Error('Enter your full name.');if(!studentId)throw new Error('Enter your Student ID.');const r=await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:'student',email,password,displayName:name,studentId})});d=await r.json();if(!r.ok)throw new Error(d.error||'Could not create account.');}else{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});d=await r.json();if(!r.ok)throw new Error(d.error||'Could not sign in.');}if(!d.user||d.user.role!=='student')throw new Error('This is not a student account.');studentAuthToken=d.token;const old=await saved();if(old&&old.sessionToken&&!old.finishedAt){session={...old,studentAuthToken};await save({...session,examId:EXAM_ID});}$('studentWelcome').textContent='Signed in as '+(d.user.displayName||d.user.email)+(d.user.studentId?' · Student ID '+d.user.studentId:'');$('accountStep').classList.add('hidden');$('accountTabs').classList.add('hidden');$('examStep').classList.remove('hidden');$('pwd').focus();}catch(e){$('err').textContent=e.message;btn.disabled=false;btn.textContent=accountMode==='register'?'Create Student Account':'Sign in as Student'}}
-async function enter(){const btn=$('enter');$('err').textContent='';btn.disabled=true;btn.textContent='Checking…';try{if(!studentAuthToken)throw new Error('Sign in to your student account first.');const d=await startSession();await showExam(d)}catch(e){$('err').textContent=e.message;btn.disabled=false;btn.textContent='Enter Exam'}}
+async function enter(){const btn=$('enter');$('err').textContent='';btn.disabled=true;btn.textContent='Checking…';try{if(!studentAuthToken)throw new Error('Sign in to your student account first.');const d=await startSession();if(!d||!d.sessionToken||!session||!session.sessionToken)throw new Error('Could not establish an exam session. Please try again.');await showExam(d)}catch(e){console.error('Acadex exam start error:',e);$('err').textContent=e.message;btn.disabled=false;btn.textContent='Enter Exam'}}
 $('showLogin').addEventListener('click',()=>setAccountMode('login'));$('showRegister').addEventListener('click',()=>setAccountMode('register'));$('accountStep').addEventListener('submit', e => {e.preventDefault();loginStudent()});$('examStep').addEventListener('submit', e => {e.preventDefault();enter()});
 (async() => {try{const old=await saved();if(old&&old.studentAuthToken&&!old.finishedAt){studentAuthToken=old.studentAuthToken;$('studentEmail').value='';}}catch(_){} $('studentEmail').focus()})();
 </script></body></html>`);
