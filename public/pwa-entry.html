@@ -1,1 +1,17 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0e0f13"><title>Acadex</title><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:#0e0f13;color:#eef0f5;font-family:system-ui,sans-serif}body{display:flex;align-items:center;justify-content:center}.card{text-align:center;padding:24px}.icon{width:82px;height:82px;border-radius:20px;margin-bottom:18px}h1{margin:0 0 8px}p{color:#a2a6b5;font-size:14px}.spin{width:24px;height:24px;border:3px solid #292a35;border-top-color:#8b8df2;border-radius:50%;animation:s .8s linear infinite;margin:20px auto}@keyframes s{to{transform:rotate(360deg)}}</style></head><body><main class="card"><img class="icon" src="/icons/acadex-icon.svg"><h1 id="t">Waking Acadex…</h1><p id="s">Checking the server…</p><div class="spin"></div></main><script>(async function(){var t=document.getElementById('t'),s=document.getElementById('s');var mobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent||'');async function check(){var c=new AbortController(),x=setTimeout(function(){c.abort()},8000);try{var r=await fetch('/api/health',{cache:'no-store',signal:c.signal});if(r.ok){clearTimeout(x);s.textContent='Server is awake. Opening Acadex…';setTimeout(function(){location.replace(mobile?'/app/mobile':'/app/desktop')},180);return}}catch(e){}clearTimeout(x);t.textContent='Waking Acadex…';s.textContent='Render is waking up. Checking again in 10 seconds…';setTimeout(check,10000)}check()})();</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0e0f13">
+<title>Acadex</title>
+</head>
+<body>
+<script>
+(function(){
+  var mobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent||'');
+  location.replace(mobile?'/app/mobile':'/app/desktop');
+})();
+</script>
+</body>
+</html>
