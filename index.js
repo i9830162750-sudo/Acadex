@@ -297,6 +297,8 @@ async function initDatabase(){
     ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS device_id TEXT;
     ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS student_user_id TEXT REFERENCES users(id) ON DELETE SET NULL;
     ALTER TABLE exams ADD COLUMN IF NOT EXISTS owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE exams ADD COLUMN IF NOT EXISTS allow_retake BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE exams ADD COLUMN IF NOT EXISTS max_attempts INTEGER;
     CREATE TABLE IF NOT EXISTS exam_folders (
       id TEXT PRIMARY KEY,
       owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -333,7 +335,7 @@ async function initDatabase(){
 }
 
 async function getExam(id){
-  const { rows } = await pool.query(`SELECT id,title,type,pdf_data_url,questions_json,student_password,duration_ms,created_at,owner_user_id FROM exams WHERE id=$1`,[id]);
+  const { rows } = await pool.query(`SELECT id,title,type,pdf_data_url,questions_json,student_password,duration_ms,created_at,owner_user_id,allow_retake,max_attempts FROM exams WHERE id=$1`,[id]);
   return rows[0] || null;
 }
 function parseQuestions(exam){
@@ -342,7 +344,7 @@ function parseQuestions(exam){
   catch(_){ return []; }
 }
 function publicExam(exam){
-  return { examId:exam.id, title:exam.title, type:exam.type, pdfDataUrl:exam.pdf_data_url||null, questions:parseQuestions(exam), durationMs:Number(exam.duration_ms), createdAt:Number(exam.created_at) };
+  return { examId:exam.id, title:exam.title, type:exam.type, pdfDataUrl:exam.pdf_data_url||null, questions:parseQuestions(exam), durationMs:Number(exam.duration_ms), createdAt:Number(exam.created_at), allowRetake:Boolean(exam.allow_retake), maxAttempts:exam.max_attempts===null||exam.max_attempts===undefined?null:Number(exam.max_attempts) };
 }
 
 
@@ -350,7 +352,7 @@ app.post('/api/auth/register', async(req,res)=>{ try{ const {role,email,password
 app.post('/api/auth/login', async(req,res)=>{ try{ const e=String(req.body?.email||'').trim().toLowerCase(), p=String(req.body?.password||''); const {rows}=await pool.query('SELECT id,role,email,password_hash,display_name,student_id FROM users WHERE email=$1',[e]); const u=rows[0]; if(!u||!verifyPassword(p,u.password_hash))return res.status(401).json({error:'Incorrect email or password.'}); const token=makeToken(); await pool.query('INSERT INTO auth_sessions(token_hash,user_id,created_at,expires_at) VALUES($1,$2,$3,$4)',[hashToken(token),u.id,Date.now(),Date.now()+1000*60*60*24*30]); res.json({token,user:{id:u.id,role:u.role,email:u.email,displayName:u.display_name,studentId:u.student_id}}); }catch(err){console.error(err);res.status(500).json({error:'Could not log in.'});} });
 app.post('/api/auth/logout', async(req,res)=>{ try{ const raw=String(req.headers.authorization||'').replace(/^Bearer\s+/,'').trim(); if(raw)await pool.query('DELETE FROM auth_sessions WHERE token_hash=$1',[hashToken(raw)]); res.json({ok:true}); }catch(err){res.status(500).json({error:'Could not log out.'});} });
 app.get('/api/auth/me', async(req,res)=>{ try{const u=await getAuthUser(req); if(!u)return res.status(401).json({error:'Not logged in.'}); res.json({user:{id:u.id,role:u.role,email:u.email,displayName:u.display_name,studentId:u.student_id}});}catch(err){res.status(500).json({error:'Could not load account.'});} });
-app.get('/api/teacher/exams', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows}=await pool.query(`SELECT e.id,e.title,e.type,e.duration_ms,e.created_at,e.folder_id,f.name AS folder_name,COUNT(s.token)::int AS attempts FROM exams e LEFT JOIN exam_sessions s ON s.exam_id=e.id LEFT JOIN exam_folders f ON f.id=e.folder_id WHERE e.owner_user_id=$1 GROUP BY e.id,f.name ORDER BY e.created_at DESC`,[u.id]); res.json({exams:rows.map(x=>({...x,durationMs:Number(x.duration_ms),createdAt:Number(x.created_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load exams.'});} });
+app.get('/api/teacher/exams', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows}=await pool.query(`SELECT e.id,e.title,e.type,e.duration_ms,e.created_at,e.folder_id,e.allow_retake,e.max_attempts,f.name AS folder_name,COUNT(s.token)::int AS attempts FROM exams e LEFT JOIN exam_sessions s ON s.exam_id=e.id LEFT JOIN exam_folders f ON f.id=e.folder_id WHERE e.owner_user_id=$1 GROUP BY e.id,f.name ORDER BY e.created_at DESC`,[u.id]); res.json({exams:rows.map(x=>({...x,durationMs:Number(x.duration_ms),createdAt:Number(x.created_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load exams.'});} });
 
 app.get('/api/teacher/folders', async(req,res)=>{
   try{
@@ -398,15 +400,15 @@ app.delete('/api/teacher/folders/:id', async(req,res)=>{
 app.get('/api/teacher/exams/:id', async(req,res)=>{
   try{
     const u=await requireRole(req,res,'teacher'); if(!u)return;
-    const {rows}=await pool.query(`SELECT e.id,e.title,e.type,e.pdf_data_url,e.questions_json,e.student_password,e.duration_ms,e.created_at,e.owner_user_id,e.folder_id,f.name AS folder_name FROM exams e LEFT JOIN exam_folders f ON f.id=e.folder_id WHERE e.id=$1 AND e.owner_user_id=$2`,[req.params.id,u.id]);
+    const {rows}=await pool.query(`SELECT e.id,e.title,e.type,e.pdf_data_url,e.questions_json,e.student_password,e.duration_ms,e.created_at,e.owner_user_id,e.folder_id,e.allow_retake,e.max_attempts,f.name AS folder_name FROM exams e LEFT JOIN exam_folders f ON f.id=e.folder_id WHERE e.id=$1 AND e.owner_user_id=$2`,[req.params.id,u.id]);
     const e=rows[0]; if(!e)return res.status(404).json({error:'Exam not found.'});
-    res.json({id:e.id,title:e.title,type:e.type,pdfDataUrl:e.pdf_data_url||null,questions:parseQuestions(e),studentPassword:e.student_password,durationMs:Number(e.duration_ms),createdAt:Number(e.created_at),folderId:e.folder_id||null,folderName:e.folder_name||null,url:(process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/exam/${encodeURIComponent(e.id)}`});
+    res.json({id:e.id,title:e.title,type:e.type,pdfDataUrl:e.pdf_data_url||null,questions:parseQuestions(e),studentPassword:e.student_password,durationMs:Number(e.duration_ms),createdAt:Number(e.created_at),folderId:e.folder_id||null,folderName:e.folder_name||null,allowRetake:Boolean(e.allow_retake),maxAttempts:e.max_attempts===null||e.max_attempts===undefined?null:Number(e.max_attempts),url:(process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/exam/${encodeURIComponent(e.id)}`});
   }catch(err){console.error(err);res.status(500).json({error:'Could not load exam.'});}
 });
 app.patch('/api/teacher/exams/:id', async(req,res)=>{
   try{
     const u=await requireRole(req,res,'teacher'); if(!u)return;
-    const current=await pool.query('SELECT id,title,type,pdf_data_url,questions_json,student_password,duration_ms,folder_id FROM exams WHERE id=$1 AND owner_user_id=$2',[req.params.id,u.id]);
+    const current=await pool.query('SELECT id,title,type,pdf_data_url,questions_json,student_password,duration_ms,folder_id,allow_retake,max_attempts FROM exams WHERE id=$1 AND owner_user_id=$2',[req.params.id,u.id]);
     const e=current.rows[0]; if(!e)return res.status(404).json({error:'Exam not found.'});
     const body=req.body||{};
     const title=body.title===undefined?e.title:String(body.title||'').trim();
@@ -437,7 +439,7 @@ app.patch('/api/teacher/exams/:id', async(req,res)=>{
       folderId=body.folderId===null||body.folderId===''?null:String(body.folderId);
       if(folderId){const f=await pool.query('SELECT id FROM exam_folders WHERE id=$1 AND owner_user_id=$2',[folderId,u.id]);if(!f.rows[0])return res.status(400).json({error:'Folder not found.'});}
     }
-    await pool.query('UPDATE exams SET title=$1,type=$2,pdf_data_url=$3,questions_json=$4,student_password=$5,duration_ms=$6,folder_id=$7 WHERE id=$8 AND owner_user_id=$9',[title,type,pdf,type==='template'?JSON.stringify(questions):null,password,duration,folderId,e.id,u.id]);
+    await pool.query('UPDATE exams SET title=$1,type=$2,pdf_data_url=$3,questions_json=$4,student_password=$5,duration_ms=$6,folder_id=$7,allow_retake=$8,max_attempts=$9 WHERE id=$10 AND owner_user_id=$11',[title,type,pdf,type==='template'?JSON.stringify(questions):null,password,duration,folderId,allowRetake,maxAttempts,e.id,u.id]);
     const baseUrl=process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`;
     res.json({ok:true,examId:e.id,url:`${baseUrl}/exam/${encodeURIComponent(e.id)}`});
   }catch(err){console.error(err);res.status(500).json({error:'Could not save exam changes.'});}
@@ -453,9 +455,15 @@ app.delete('/api/teacher/exams/:id', async(req,res)=>{
     res.status(500).json({error:'Could not delete exam.'});
   }
 });
-app.get('/api/teacher/exams/:id/results', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows:er}=await pool.query('SELECT id,title FROM exams WHERE id=$1 AND owner_user_id=$2',[req.params.id,u.id]);if(!er[0])return res.status(404).json({error:'Exam not found.'}); const {rows}=await pool.query(`SELECT s.id,s.public_result_token,s.student_id,s.student_name,s.student_user_id,s.score,s.total,s.percentage,s.submitted_at FROM exam_submissions s WHERE s.exam_id=$1 ORDER BY s.submitted_at DESC`,[req.params.id]); res.json({exam:er[0],results:rows.map(x=>({...x,publicResultToken:x.public_result_token||null,publicResultUrl:x.public_result_token?((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(x.public_result_token)}`):null,percentage:Number(x.percentage),submittedAt:Number(x.submitted_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load results.'});} });
+app.get('/api/teacher/exams/:id/results', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows:er}=await pool.query('SELECT id,title FROM exams WHERE id=$1 AND owner_user_id=$2',[req.params.id,u.id]);if(!er[0])return res.status(404).json({error:'Exam not found.'}); const {rows}=await pool.query(`SELECT s.id,s.public_result_token,s.student_id,s.student_name,s.student_user_id,s.score,s.total,s.percentage,s.submitted_at,
+      ROW_NUMBER() OVER (PARTITION BY s.student_user_id ORDER BY s.submitted_at ASC)::int AS attempt_number,
+      COUNT(*) OVER (PARTITION BY s.student_user_id)::int AS attempt_count
+      FROM exam_submissions s WHERE s.exam_id=$1 ORDER BY s.student_user_id, s.submitted_at DESC`,[req.params.id]); res.json({exam:er[0],results:rows.map(x=>({...x,publicResultToken:x.public_result_token||null,publicResultUrl:x.public_result_token?((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(x.public_result_token)}`):null,percentage:Number(x.percentage),submittedAt:Number(x.submitted_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load results.'});} });
 app.get('/api/teacher/submissions/:id', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows}=await pool.query(`SELECT s.id,s.public_result_token,s.student_id,s.student_name,s.score,s.total,s.percentage,s.answers_json,s.results_json,s.submitted_at,e.id AS exam_id,e.title FROM exam_submissions s JOIN exams e ON e.id=s.exam_id WHERE s.id=$1 AND e.owner_user_id=$2`,[req.params.id,u.id]);if(!rows[0])return res.status(404).json({error:'Result not found.'});const r=rows[0];res.json({submissionId:r.id,publicResultToken:r.public_result_token||null,publicResultUrl:r.public_result_token?((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(r.public_result_token)}`):null,examId:r.exam_id,examTitle:r.title,studentId:r.student_id,studentName:r.student_name,score:r.score,total:r.total,percentage:Number(r.percentage),answers:r.answers_json,results:r.results_json,submittedAt:Number(r.submitted_at)});}catch(err){console.error(err);res.status(500).json({error:'Could not load result.'});} });
-app.get('/api/student/results', async(req,res)=>{ try{const u=await requireRole(req,res,'student');if(!u)return; const {rows}=await pool.query(`SELECT s.id,s.public_result_token,s.exam_id,e.title,s.score,s.total,s.percentage,s.submitted_at FROM exam_submissions s JOIN exams e ON e.id=s.exam_id WHERE s.student_user_id=$1 ORDER BY s.submitted_at DESC`,[u.id]);res.json({results:rows.map(x=>({...x,publicResultUrl:x.public_result_token?((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(x.public_result_token)}`):null,percentage:Number(x.percentage),submittedAt:Number(x.submitted_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load results.'});} });
+app.get('/api/student/results', async(req,res)=>{ try{const u=await requireRole(req,res,'student');if(!u)return; const {rows}=await pool.query(`SELECT s.id,s.public_result_token,s.exam_id,e.title,s.score,s.total,s.percentage,s.submitted_at,e.allow_retake,e.max_attempts,
+      ROW_NUMBER() OVER (PARTITION BY s.exam_id ORDER BY s.submitted_at ASC)::int AS attempt_number,
+      COUNT(*) OVER (PARTITION BY s.exam_id)::int AS attempt_count
+      FROM exam_submissions s JOIN exams e ON e.id=s.exam_id WHERE s.student_user_id=$1 ORDER BY s.submitted_at DESC`,[u.id]);res.json({results:rows.map(x=>({...x,publicResultUrl:x.public_result_token?((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(x.public_result_token)}`):null,percentage:Number(x.percentage),submittedAt:Number(x.submitted_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load results.'});} });
 
 app.get('/api/student/results/:id', async(req,res)=>{ try{const u=await requireRole(req,res,'student');if(!u)return; const {rows}=await pool.query(`SELECT s.id,s.exam_id,e.title,s.score,s.total,s.percentage,s.answers_json,s.results_json,s.submitted_at FROM exam_submissions s JOIN exams e ON e.id=s.exam_id WHERE s.id=$1 AND s.student_user_id=$2`,[req.params.id,u.id]); if(!rows[0])return res.status(404).json({error:'Result not found.'}); const r=rows[0]; res.json({submissionId:r.id,examId:r.exam_id,examTitle:r.title,score:r.score,total:r.total,percentage:Number(r.percentage),answers:r.answers_json,results:r.results_json,submittedAt:Number(r.submitted_at)}); }catch(err){console.error(err);res.status(500).json({error:'Could not load result.'});} });
 app.get('/api/student/teachers', async(req,res)=>{ try{const u=await requireRole(req,res,'student');if(!u)return; const {rows}=await pool.query(`SELECT DISTINCT t.id,t.email,t.display_name FROM users t JOIN exams e ON e.owner_user_id=t.id JOIN exam_submissions s ON s.exam_id=e.id WHERE s.student_user_id=$1 AND t.role='teacher' ORDER BY t.display_name`,[u.id]); res.json({teachers:rows.map(x=>({id:x.id,email:x.email,displayName:x.display_name}))}); }catch(err){console.error(err);res.status(500).json({error:'Could not load teachers.'});} });
@@ -516,7 +524,10 @@ app.get('/api/health', (req, res) => res.json({ok:true, ts:Date.now()}));
 app.post('/exam/create', async(req, res) => {
   try{
     const user=await requireRole(req,res,'teacher'); if(!user)return;
-    const {title, studentPassword, durationMs, type='pdf', pdfDataUrl=null, questions=[], folderId=null}=req.body||{};
+    const {title, studentPassword, durationMs, type='pdf', pdfDataUrl=null, questions=[], folderId=null, allowRetake=false, maxAttempts=null}=req.body||{};
+    const safeAllowRetake=Boolean(allowRetake);
+    const safeMaxAttempts=maxAttempts===null||maxAttempts===''||maxAttempts===undefined?null:Number(maxAttempts);
+    if(safeMaxAttempts!==null && (!Number.isInteger(safeMaxAttempts)||safeMaxAttempts<1)) return res.status(400).json({error:'maxAttempts must be a positive integer or null'});
     if(!title || typeof title !== 'string') return res.status(400).json({error:'title is required'});
     if(!studentPassword || typeof studentPassword !== 'string') return res.status(400).json({error:'studentPassword is required'});
     if(typeof durationMs !== 'number' || durationMs<=0) return res.status(400).json({error:'durationMs must be a positive number'});
@@ -537,7 +548,7 @@ app.post('/exam/create', async(req, res) => {
       safeFolderId=String(folderId);
     }
     const examId='exam_'+crypto.randomBytes(12).toString('hex');
-    await pool.query(`INSERT INTO exams(id,title,type,pdf_data_url,questions_json,student_password,duration_ms,created_at,owner_user_id,folder_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,[examId,title,type,type==='pdf'?pdfDataUrl:null,type==='template'?JSON.stringify(questions):null,studentPassword,durationMs,Date.now(),user.id,safeFolderId]);
+    await pool.query(`INSERT INTO exams(id,title,type,pdf_data_url,questions_json,student_password,duration_ms,created_at,owner_user_id,folder_id,allow_retake,max_attempts) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[examId,title,type,type==='pdf'?pdfDataUrl:null,type==='template'?JSON.stringify(questions):null,studentPassword,durationMs,Date.now(),user.id,safeFolderId,safeAllowRetake,safeMaxAttempts]);
     const baseUrl=process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
     res.json({examId,url:`${baseUrl}/exam/${examId}`});
   }catch(error){ console.error('Create exam error:', error); res.status(500).json({error:'Failed to create exam'}); }
@@ -585,28 +596,16 @@ app.post('/api/exam/:id/session', async(req, res) => {
     if(studentId.length>100) return res.status(400).json({error:'Student ID is too long.'});
     if(studentName.length>150) return res.status(400).json({error:'Student name is too long.'});
 
-    // DEVICE FIRST: one device can only ever have one attempt for this exam.
-    const d=await pool.query(`SELECT token,student_id,student_name,device_id,student_user_id,started_at,end_at,finished_at FROM exam_sessions WHERE exam_id=$1 AND device_id=$2 ORDER BY created_at DESC LIMIT 1`,[exam.id,deviceId]);
-    const ds=d.rows[0];
-    if(ds){
-      const now=Date.now();
-      if(ds.finished_at || now>=Number(ds.end_at)){
-        if(!ds.finished_at) await pool.query(`UPDATE exam_sessions SET finished_at=$1 WHERE token=$2`,[now,ds.token]);
-        return res.status(409).json({error:'This device has already used this exam.'});
-      }
-      if(ds.student_id === studentId){
-        return res.status(409).json({error:'This device has already used this exam.'});
-      }
-
-      return res.status(409).json({error:'This device has already started this exam with another student.'});
-    }
-
-    // STUDENT SECOND: a student can only have one attempt for this exam.
-    const st=await pool.query(`SELECT token,student_id,student_name,device_id,student_user_id,started_at,end_at,finished_at FROM exam_sessions WHERE exam_id=$1 AND LOWER(student_id)=LOWER($2) ORDER BY created_at DESC LIMIT 1`,[exam.id,studentId]);
-    const ss=st.rows[0];
-    if(ss) return res.status(409).json({error:'This student has already used this exam.'});
-
     if(password !== exam.student_password) return res.status(401).json({error:'Incorrect password'});
+    const attemptCountResult=await pool.query(`SELECT COUNT(*)::int AS count FROM exam_submissions WHERE exam_id=$1 AND student_user_id=$2`,[exam.id,authUser.id]);
+    const completedAttempts=Number(attemptCountResult.rows[0]?.count||0);
+    const activeAttemptResult=await pool.query(`SELECT token,student_id,student_name,device_id,started_at,end_at,finished_at FROM exam_sessions WHERE exam_id=$1 AND student_user_id=$2 AND finished_at IS NULL ORDER BY created_at DESC LIMIT 1`,[exam.id,authUser.id]);
+    const active=activeAttemptResult.rows[0];
+    if(active && Date.now()<Number(active.end_at)){
+      return res.status(409).json({error:'You already have an active attempt for this exam. Resume that attempt instead.'});
+    }
+    if(!exam.allow_retake && completedAttempts>0) return res.status(409).json({error:'This exam does not allow retakes.'});
+    if(exam.max_attempts!==null && completedAttempts>=Number(exam.max_attempts)) return res.status(409).json({error:`You have reached the maximum of ${Number(exam.max_attempts)} attempt${Number(exam.max_attempts)===1?'':'s'} for this exam.`});
     const now=Date.now(), endAt=now+Number(exam.duration_ms), newToken=makeToken();
     await pool.query(`INSERT INTO exam_sessions(token,exam_id,started_at,end_at,created_at,student_id,student_name,device_id,student_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,[newToken,exam.id,now,endAt,now,studentId,studentName,deviceId,authUser?.id||null]);
     res.json({sessionToken:newToken, studentId, studentName, deviceId, startedAt:now, endAt, ...publicExam(exam)});
