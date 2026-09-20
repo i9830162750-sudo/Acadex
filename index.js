@@ -1036,12 +1036,9 @@ app.get('/exam/:id', async(req, res) => {
 #app.pdf-mode .paper{scrollbar-width:none;-ms-overflow-style:none;position:relative}
 #app.pdf-mode .paper::-webkit-scrollbar{display:none}
 .pdf-reader-rail{position:fixed;right:10px;top:50%;z-index:2147483000;transform:translateY(-50%);width:38px;display:flex;flex-direction:column;align-items:center;gap:8px;opacity:1;transition:opacity .35s ease;pointer-events:auto}
-.pdf-page-count{min-width:42px;padding:6px 5px;border-radius:9px;background:rgba(255,255,255,.88);color:#222;font-size:11px;font-weight:800;text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.14);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
-.pdf-page-label{display:block;margin-bottom:5px;font-size:10px;line-height:1}
-.pdf-page-list{display:flex;flex-direction:column;gap:2px;align-items:center}
-.pdf-page-chip{width:30px;height:22px;padding:0;border:0;border-radius:6px;background:transparent;color:inherit;font:800 10px Inter,sans-serif;cursor:pointer}
-.pdf-page-chip:hover{background:rgba(0,0,0,.08)}
-.pdf-page-chip.active{background:var(--accent);color:#fff}
+.pdf-bottom-page-count{position:fixed;left:16px;bottom:18px;z-index:2147483001;padding:7px 11px;border-radius:9px;background:rgba(255,255,255,.9);color:#222;font:800 12px Inter,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.16);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);opacity:1;transition:opacity .35s ease,transform .35s ease}
+#app.pdf-mode.pdf-reading .pdf-bottom-page-count{opacity:0;transform:translateY(8px);pointer-events:none}
+@media(max-width:650px){.pdf-bottom-page-count{left:10px;bottom:12px;font-size:11px;padding:6px 9px}}
 .pdf-scroll-track{width:5px;height:min(52vh,420px);border-radius:99px;background:rgba(0,0,0,.14);position:relative}
 .pdf-scroll-thumb{position:absolute;left:0;width:100%;min-height:30px;border-radius:99px;background:rgba(30,30,30,.6);transition:top .08s linear}
 
@@ -1175,13 +1172,13 @@ async function showExam(d){examData=d;$('portal').style.display='none';$('app').
 async function renderPDF(dataUrl){
   const paper=$('paper'); paper.innerHTML='';
   const rail=document.createElement('div'); rail.className='pdf-reader-rail';
-  rail.innerHTML='<div class="pdf-page-count" id="pdfPageCount"><span class="pdf-page-label">1 / 1</span><div class="pdf-page-list" id="pdfPageList"></div></div><div class="pdf-scroll-track"><div class="pdf-scroll-thumb" id="pdfScrollThumb"></div></div><div class="pdf-zoom-controls"><button class="pdf-zoom-btn" id="pdfZoomIn" type="button" aria-label="Zoom in">+</button><button class="pdf-zoom-btn" id="pdfZoomOut" type="button" aria-label="Zoom out">−</button><button class="pdf-zoom-btn" id="pdfZoomReset" type="button" aria-label="Reset zoom">↺</button></div>';
+  rail.innerHTML='<div class="pdf-bottom-page-count" id="pdfBottomPageCount">1 / 1</div><div class="pdf-scroll-track"><div class="pdf-scroll-thumb" id="pdfScrollThumb"></div></div><div class="pdf-zoom-controls"><button class="pdf-zoom-btn" id="pdfZoomIn" type="button" aria-label="Zoom in">+</button><button class="pdf-zoom-btn" id="pdfZoomOut" type="button" aria-label="Zoom out">−</button><button class="pdf-zoom-btn" id="pdfZoomReset" type="button" aria-label="Reset zoom">↺</button></div>';
   $('app').appendChild(rail);
 
   const pdf=await pdfjsLib.getDocument({data:atob(dataUrl.split(',')[1])}).promise;
   const renderScale=2.25;
   let zoomScale=1.35;
-  const count=$('pdfPageCount'), pageLabel=$('pdfPageCount').querySelector('.pdf-page-label'), pageList=$('pdfPageList'), thumb=$('pdfScrollThumb');
+  const count=$('pdfBottomPageCount'), thumb=$('pdfScrollThumb');
 
   function updatePdfReaderPosition(){
     const maxY=paper.scrollHeight-paper.clientHeight;
@@ -1192,22 +1189,7 @@ async function renderPDF(dataUrl){
       if(canvas.offsetTop <= paper.scrollTop + paper.clientHeight*.35) page=index+1;
     });
     page=Math.min(pdf.numPages,Math.max(1,page));
-    pageLabel.textContent=page+' / '+pdf.numPages;
-    pageList.innerHTML='';
-    const startPage=Math.max(1,Math.min(page-2,Math.max(1,pdf.numPages-4)));
-    const endPage=Math.min(pdf.numPages,startPage+4);
-    for(let p=startPage;p<=endPage;p++){
-      const chip=document.createElement('button');
-      chip.type='button';
-      chip.className='pdf-page-chip'+(p===page?' active':'');
-      chip.textContent=String(p);
-      chip.title='Go to page '+p;
-      chip.addEventListener('click',()=>{
-        const target=paper.querySelector('canvas[data-page="'+p+'"]');
-        if(target)paper.scrollTop=Math.max(0,target.offsetTop-paper.clientHeight*.08);
-      });
-      pageList.appendChild(chip);
-    }
+    count.textContent=page+' / '+pdf.numPages;
     const track=thumb.parentElement;
     const travel=Math.max(0,track.clientHeight-thumb.offsetHeight);
     thumb.style.top=(travel*ratioY)+'px';
@@ -1224,20 +1206,20 @@ async function renderPDF(dataUrl){
     requestAnimationFrame(updatePdfReaderPosition);
   }
 
-  function setZoom(next,preservePosition=true){
-    const oldMaxY=paper.scrollHeight-paper.clientHeight;
-    const oldMaxX=paper.scrollWidth-paper.clientWidth;
-    const oldRatioY=oldMaxY>0?paper.scrollTop/oldMaxY:0;
-    const oldRatioX=oldMaxX>0?paper.scrollLeft/oldMaxX:0;
-    zoomScale=Math.min(3,Math.max(.7,Number(next.toFixed(2))));
+  function setZoom(next,anchorX=null,anchorY=null){
+    const rect=paper.getBoundingClientRect();
+    const oldScale=zoomScale;
+    const nextScale=Math.min(3,Math.max(.7,Number(next.toFixed(2))));
+    if(Math.abs(nextScale-oldScale)<.001)return;
+    const x=anchorX===null?paper.clientWidth/2:anchorX-rect.left;
+    const y=anchorY===null?paper.clientHeight/2:anchorY-rect.top;
+    const contentX=(paper.scrollLeft+x)/oldScale;
+    const contentY=(paper.scrollTop+y)/oldScale;
+    zoomScale=nextScale;
     updateCanvasZoom();
     requestAnimationFrame(()=>{
-      if(preservePosition){
-        const newMaxY=paper.scrollHeight-paper.clientHeight;
-        const newMaxX=paper.scrollWidth-paper.clientWidth;
-        paper.scrollTop=Math.max(0,newMaxY*oldRatioY);
-        paper.scrollLeft=Math.max(0,newMaxX*oldRatioX);
-      }
+      paper.scrollLeft=Math.max(0,contentX*zoomScale-x);
+      paper.scrollTop=Math.max(0,contentY*zoomScale-y);
       updatePdfReaderPosition();
     });
   }
@@ -1260,9 +1242,9 @@ async function renderPDF(dataUrl){
   }
 
   paper.addEventListener('scroll',updatePdfReaderPosition,{passive:true});
-  $('pdfZoomIn').onclick=()=>setZoom(zoomScale+.2,true);
-  $('pdfZoomOut').onclick=()=>setZoom(zoomScale-.2,true);
-  $('pdfZoomReset').onclick=()=>setZoom(1.35,true);
+  $('pdfZoomIn').onclick=()=>setZoom(zoomScale+.2);
+  $('pdfZoomOut').onclick=()=>setZoom(zoomScale-.2);
+  $('pdfZoomReset').onclick=()=>setZoom(1.35);
 
   /* Click-drag on desktop, one-finger drag on mobile, two-finger pinch zoom. */
   paper.style.touchAction='none';
@@ -1308,14 +1290,18 @@ async function renderPDF(dataUrl){
       const s=twoPointers();
       if(!s)return;
       pinchTargetScale=Math.min(3,Math.max(.7,pinchBaseScale*(s.distance/pinchStartDistance)));
+      const rect=paper.getBoundingClientRect();
+      const localX=s.centerX-rect.left, localY=s.centerY-rect.top;
+      const contentX=(pinchStartScrollLeft+localX)/pinchBaseScale;
+      const contentY=(pinchStartScrollTop+localY)/pinchBaseScale;
       const factor=pinchTargetScale/renderScale;
       paper.querySelectorAll('canvas').forEach(canvas=>{
         const w=Number(canvas.dataset.baseWidth),h=Number(canvas.dataset.baseHeight);
         canvas.style.width=(w*factor)+'px';
         canvas.style.height=(h*factor)+'px';
       });
-      paper.scrollLeft=pinchStartScrollLeft-(s.centerX-pinchStartCenterX);
-      paper.scrollTop=pinchStartScrollTop-(s.centerY-pinchStartCenterY);
+      paper.scrollLeft=Math.max(0,contentX*pinchTargetScale-localX);
+      paper.scrollTop=Math.max(0,contentY*pinchTargetScale-localY);
       updatePdfReaderPosition();
       return;
     }
