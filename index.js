@@ -21,6 +21,48 @@ app.use(cors());
 app.use(express.json( {
   limit: '25mb'
 }));
+const ACADEX_MOBILE_PWA_GATE = `
+<style id="acadex-mobile-pwa-gate">
+@media (max-width:600px){
+  html.acadex-mobile-browser body > *:not(#acadex-mobile-pwa-gate){display:none!important}
+  #acadex-mobile-pwa-gate{
+    position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;
+    padding:24px;background:#0e0f13;color:#eef0f5;font-family:Inter,system-ui,sans-serif;text-align:center
+  }
+  #acadex-mobile-pwa-gate .acadex-gate-card{width:min(420px,100%);padding:30px 24px;border:1px solid #262832;border-radius:22px;background:#17181f;box-shadow:0 24px 70px #0008}
+  #acadex-mobile-pwa-gate img{width:76px;height:76px;border-radius:18px;margin-bottom:18px}
+  #acadex-mobile-pwa-gate h1{margin:0 0 8px;font-size:26px}
+  #acadex-mobile-pwa-gate p{margin:0 auto 20px;color:#a2a6b5;line-height:1.55;font-size:14px}
+  #acadex-mobile-pwa-gate button{width:100%;border:0;border-radius:12px;padding:13px 16px;background:#8b8df2;color:#fff;font:800 15px Inter,system-ui,sans-serif}
+  #acadex-mobile-pwa-gate .hint{margin-top:12px;font-size:12px;color:#777d90}
+}
+@media (min-width:601px){#acadex-mobile-pwa-gate{display:none!important}}
+</style>
+<div id="acadex-mobile-pwa-gate" aria-label="Install Acadex">
+  <div class="acadex-gate-card">
+    <img src="/icons/acadex-icon.svg" alt="Acadex">
+    <h1>Install Acadex</h1>
+    <p>Acadex on mobile works as an installed app. Install it to use the full exam platform without the browser UI.</p>
+    <button id="acadex-gate-install" type="button">Install Acadex</button>
+    <div class="hint" id="acadex-gate-hint">If the button does not appear, use your browser's “Add to Home screen” option.</div>
+  </div>
+</div>
+<script>
+(function(){
+  var standalone=window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone===true;
+  var mobile=window.matchMedia('(max-width:600px)').matches;
+  var gate=document.getElementById('acadex-mobile-pwa-gate');
+  if(!mobile||standalone){if(gate)gate.remove();return}
+  document.documentElement.classList.add('acadex-mobile-browser');
+  var deferred=null, btn=document.getElementById('acadex-gate-install');
+  window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();deferred=e;});
+  if(btn)btn.addEventListener('click',async function(){
+    if(deferred){deferred.prompt();await deferred.userChoice;deferred=null;return}
+    var hint=document.getElementById('acadex-gate-hint');
+    if(hint)hint.textContent='Open your browser menu and choose “Add to Home screen” or “Install app”.';
+  });
+})();
+</script>`;
 const ACADEX_MOBILE_NAV_FIX = `
 <style id="acadex-mobile-nav-safe-area-fix">
 @media (max-width:600px){
@@ -39,7 +81,7 @@ app.get('/', (req,res) => {
   try {
     const file = path.join(__dirname, 'public', 'index.html');
     const html = fs.readFileSync(file, 'utf8');
-    res.type('html').send(html.includes('</head>') ? html.replace('</head>', ACADEX_MOBILE_NAV_FIX + '</head>') : html);
+    res.type('html').send(html.includes('</head>') ? html.replace('</head>', ACADEX_MOBILE_NAV_FIX + ACADEX_MOBILE_PWA_GATE + '</head>') : html);
   } catch (_) {
     res.status(500).send('Acadex frontend is unavailable.');
   }
@@ -321,6 +363,7 @@ app.get('/api/teacher/students/:studentId/results/:submissionId', async(req,res)
   }catch(err){console.error(err);res.status(500).json({error:'Could not load result.'});}
 });
 app.get('/ping', (req, res) => res.json({ok:true, ts:Date.now()}));
+app.get('/api/health', (req, res) => res.json({ok:true, ts:Date.now()}));
 
 app.post('/exam/create', async(req, res) => {
   try{
