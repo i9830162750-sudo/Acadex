@@ -1517,16 +1517,12 @@ body.student-role .student-only-nav{display:flex!important;}
         <section class="panel" data-panel="4">
           <div class="panel-head">
             <h2>How should students access this?</h2>
-            <p>Choose a hosted link or a self-contained file that works offline.</p>
+            <p>Create a hosted exam on the Acadex server and get a shareable link.</p>
           </div>
           <div class="mode-toggle">
             <button type="button" class="mode-btn active" id="modeHostedBtn" data-mode="hosted">
               <span class="mode-title">Hosted Exam</span>
               <span class="mode-desc">Creates an exam on the server and gives you a shareable link.</span>
-            </button>
-            <button type="button" class="mode-btn" id="modeOfflineBtn" data-mode="offline">
-              <span class="mode-title">Offline Exam</span>
-              <span class="mode-desc">Downloads a self-contained HTML file. Works without internet.</span>
             </button>
           </div>
 
@@ -1542,7 +1538,7 @@ body.student-role .student-only-nav{display:flex!important;}
 
           <div class="error-banner" id="errorBanner">
             <strong id="errorBannerTitle">Couldn't connect to the exam server</strong>
-            <span id="errorBannerMsg">Render may still be waking up. You can try again or create an offline exam.</span>
+            <span id="errorBannerMsg">Render may still be waking up. You can try again in a moment.</span>
             <br>
             <span class="retry-link" id="retryLink">Try again</span>
           </div>
@@ -1710,7 +1706,7 @@ body.student-role .student-only-nav{display:flex!important;}
   let selectedFile = null;
   let editingExamId = '';
   let editingExamOriginalType = '';
-  let deliveryMode = 'hosted';
+  const deliveryMode = 'hosted';
   let examType = 'pdf';
   let questions = [];
   let backendReady = false;
@@ -1800,7 +1796,6 @@ body.student-role .student-only-nav{display:flex!important;}
   const serverStatus     = document.getElementById('serverStatus');
   const serverStatusText = document.getElementById('serverStatusText');
   const modeHostedBtn    = document.getElementById('modeHostedBtn');
-  const modeOfflineBtn   = document.getElementById('modeOfflineBtn');
   const hostedResult     = document.getElementById('hostedResult');
   const hostedUrlText    = document.getElementById('hostedUrlText');
   const hrCopyBtn        = document.getElementById('hrCopyBtn');
@@ -1840,7 +1835,7 @@ body.student-role .student-only-nav{display:flex!important;}
     { title: 'Exam Type',     sub: 'PDF paper or question template' },
     { title: 'Time Limit',    sub: 'How long students get' },
     { title: 'Password',      sub: 'Gate entry for students' },
-    { title: 'Delivery',      sub: 'Hosted link or offline file' },
+    { title: 'Delivery',      sub: 'Create a hosted exam' },
   ];
 
   function goToPanel(i) {
@@ -2563,24 +2558,14 @@ Fill the blank template using the MCQ set and return only the completed template
   /* ═══════════════════════════════════════════════════════════════
      DELIVERY MODE TOGGLE
   ═══════════════════════════════════════════════════════════════ */
-  function setDeliveryMode(mode) {
-    deliveryMode = mode;
-    modeHostedBtn.classList.toggle('active', mode === 'hosted');
-    modeOfflineBtn.classList.toggle('active', mode === 'offline');
+  function setDeliveryMode() {
     hostedResult.classList.remove('visible');
     errorBanner.classList.remove('visible');
-
-    if (examType === 'template') {
-      generateBtn.querySelector('span').textContent =
-        mode === 'hosted' ? 'Generate Hosted Template Exam' : 'Generate Offline Template Exam';
-    } else {
-      generateBtn.querySelector('span').textContent =
-        mode === 'hosted' ? 'Generate Exam Page' : 'Generate Offline Exam';
-    }
+    generateBtn.querySelector('span').textContent =
+      examType === 'template' ? 'Generate Hosted Template Exam' : 'Generate Exam Page';
     updateGenerateBtn();
   }
-  modeHostedBtn.addEventListener('click', () => setDeliveryMode('hosted'));
-  modeOfflineBtn.addEventListener('click', () => setDeliveryMode('offline'));
+  modeHostedBtn.addEventListener('click', () => setDeliveryMode());
 
   /* ═══════════════════════════════════════════════════════════════
      ERROR BANNER HELPERS
@@ -2652,9 +2637,7 @@ Fill the blank template using the MCQ set and return only the completed template
   function resetGenerateBtn() {
     generateBtn.disabled = false;
     generateBtn.querySelector('span').textContent =
-      examType === 'template'
-        ? (deliveryMode === 'hosted' ? 'Generate Hosted Template Exam' : 'Generate Offline Template Exam')
-        : (deliveryMode === 'hosted' ? 'Generate Exam Page' : 'Generate Offline Exam');
+      examType === 'template' ? 'Generate Hosted Template Exam' : 'Generate Exam Page';
     updateGenerateBtn();
   }
 
@@ -3045,53 +3028,6 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
 </body></html>`;
   }
 
-  function generateOffline(title, totalSeconds, sPwd) {
-    generateBtn.disabled = true;
-
-    if (examType === 'template') {
-      generateBtn.querySelector('span').textContent = 'Building offline exam…';
-      try {
-        const examHTML = buildTemplateExamHTML(title, totalSeconds, sPwd, questions);
-        const blob = new Blob([examHTML], { type: 'text/html;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'exam-template.html';
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
-        showToast('✅ Offline MCQ exam downloaded!', 'success', 4000);
-      } catch (err) {
-        console.error(err);
-        showToast('Could not build the offline exam.', 'error');
-      }
-      resetGenerateBtn();
-      return;
-    }
-
-    generateBtn.querySelector('span').textContent = 'Processing PDF…';
-    readFileAsDataUrl(selectedFile)
-      .then((pdfDataUrl) => {
-        const examHTML = buildPdfExamHTML(title, totalSeconds, pdfDataUrl, sPwd);
-        const blob = new Blob([examHTML], { type: 'text/html;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'exam.html';
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
-        showToast('✅ exam.html downloaded successfully!', 'success', 4000);
-        resetGenerateBtn();
-      })
-      .catch(() => {
-        showToast('Failed to read the PDF. Please try again.', 'error');
-        resetGenerateBtn();
-      });
-  }
-
   function generateHosted(title, totalSeconds, sPwd) {
     hostedResult.classList.remove('visible');
     hideErrorBanner();
@@ -3113,8 +3049,8 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
               title: title,
               studentPassword: sPwd,
               durationMs: totalSeconds * 1000,
-              type: 'template',
-              questions: questions,
+              type: 'pdf',
+              questions: [],
               pdfDataUrl: pdfDataUrl,
               folderId: selectedFolderId || null
             })
@@ -3156,7 +3092,7 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
         if (err.message === 'PING_FAILED' || err.name === 'AbortError') {
           showErrorBanner(
             "Couldn't connect to the exam server",
-            'Render may still be waking up. You can try again or create an offline exam.'
+            'Render may still be waking up. You can try again in a moment.'
           );
         } else if (err.message === 'Failed to read the PDF.') {
           showToast('Failed to read the PDF. Please try again.', 'error');
@@ -3165,7 +3101,7 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
             "Couldn't create the hosted exam",
             (err.message && err.message !== 'CREATE_FAILED' && err.message !== 'INVALID_RESPONSE')
               ? err.message
-              : 'Something went wrong talking to the exam server. You can try again or create an offline exam.'
+              : 'Something went wrong talking to the exam server. You can try again in a moment.'
           );
         }
       });
@@ -3238,38 +3174,13 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
 
     if (examType === 'template') {
       generateTemplate(title, totalSeconds, sPwd);
-    } else if (deliveryMode === 'offline') {
-      generateOffline(title, totalSeconds, sPwd);
     } else {
       generateHosted(title, totalSeconds, sPwd);
     }
   });
 
   function generateTemplate(title, totalSeconds, sPwd) {
-    if (deliveryMode === 'hosted') {
-      generateHostedTemplate(title, totalSeconds, sPwd);
-      return;
-    }
-
-    generateBtn.disabled = true;
-    generateBtn.querySelector('span').textContent = 'Building offline template…';
-    try {
-      const examHTML = buildTemplateExamHTML(title, totalSeconds, sPwd, questions);
-      const blob = new Blob([examHTML], { type: 'text/html;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'exam-template.html';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 5000);
-      showToast('✅ Offline template exam downloaded!', 'success', 4000);
-    } catch (err) {
-      console.error(err);
-      showToast('Could not build the template exam.', 'error');
-    }
-    resetGenerateBtn();
+    generateHostedTemplate(title, totalSeconds, sPwd);
   }
 
   function generateHostedTemplate(title, totalSeconds, sPwd) {
