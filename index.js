@@ -335,6 +335,55 @@ function parseQuestions(exam){
 function publicExam(exam){
   return { examId:exam.id, title:exam.title, type:exam.type, pdfDataUrl:exam.pdf_data_url||null, questions:parseQuestions(exam), durationMs:Number(exam.duration_ms), createdAt:Number(exam.created_at), allowRetake:Boolean(exam.allow_retake), maxAttempts:exam.max_attempts===null||exam.max_attempts===undefined?null:Number(exam.max_attempts) };
 }
+function gradeExam(exam, answers){
+  const questions=parseQuestions(exam);
+  const submitted=answers && typeof answers==='object' ? answers : {};
+  const results=[];
+  let score=0;
+
+  questions.forEach((q,i)=>{
+    const key=String(i);
+    const raw=submitted[key];
+    const unanswered=raw===undefined||raw===null||String(raw)==='';
+    let yourAnswer=unanswered?'Unanswered':String(raw);
+    let correctAnswer='';
+
+    if(q.type==='mcq'){
+      const correctIndex=Number(q.answer);
+      correctAnswer=Number.isInteger(correctIndex)&&q.options?.[correctIndex]!==undefined
+        ? String(q.options[correctIndex])
+        : '—';
+      const selectedIndex=unanswered?null:Number(raw);
+      const correct=!unanswered && Number.isInteger(selectedIndex) && selectedIndex===correctIndex;
+      if(correct) score++;
+      results.push({
+        questionNumber:i+1,
+        question:q.text||'',
+        yourAnswer:unanswered?'Unanswered':(q.options?.[selectedIndex]!==undefined?String(q.options[selectedIndex]):String(raw)),
+        correctAnswer,
+        correct
+      });
+    }else if(q.type==='tf'){
+      const correctValue=String(q.answer);
+      correctAnswer=correctValue==='true'?'True':correctValue==='false'?'False':'—';
+      const selected=unanswered?'':String(raw).toLowerCase();
+      const correct=!unanswered && selected===correctValue;
+      if(correct) score++;
+      results.push({
+        questionNumber:i+1,
+        question:q.text||'',
+        yourAnswer:unanswered?'Unanswered':(selected==='true'?'True':selected==='false'?'False':String(raw)),
+        correctAnswer,
+        correct
+      });
+    }
+  });
+
+  const total=questions.length;
+  const percentage=total ? Number(((score/total)*100).toFixed(2)) : 0;
+  return {score,total,percentage,results};
+}
+
 
 
 app.post('/api/auth/register', async(req,res)=>{ try{ const {role,email,password,displayName,studentId}=req.body||{}; if(!['teacher','student'].includes(role))return res.status(400).json({error:'Choose teacher or student.'}); const e=String(email||'').trim().toLowerCase(); const p=String(password||''); const n=String(displayName||'').trim(); if(!e||!e.includes('@'))return res.status(400).json({error:'Enter a valid email.'}); if(p.length<6)return res.status(400).json({error:'Password must be at least 6 characters.'}); if(n.length<2)return res.status(400).json({error:'Enter your name.'}); if(role==='student'&&!String(studentId||'').trim())return res.status(400).json({error:'Student ID is required.'}); const exists=await pool.query('SELECT id FROM users WHERE email=$1',[e]); if(exists.rows[0])return res.status(409).json({error:'An account with that email already exists.'}); const id='usr_'+crypto.randomBytes(12).toString('hex'); await pool.query('INSERT INTO users(id,role,email,password_hash,display_name,student_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,role,e,makePasswordHash(p),n,role==='student'?String(studentId).trim():null,Date.now()]); const token=makeToken(); await pool.query('INSERT INTO auth_sessions(token_hash,user_id,created_at,expires_at) VALUES($1,$2,$3,$4)',[hashToken(token),id,Date.now(),Date.now()+1000*60*60*24*30]); res.json({token,user:{id,role,email:e,displayName:n,studentId:role==='student'?String(studentId).trim():null}}); }catch(err){console.error(err);res.status(500).json({error:'Could not create account.'});} });
