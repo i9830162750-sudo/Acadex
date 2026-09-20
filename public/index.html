@@ -2572,36 +2572,36 @@ Fill the blank template using the MCQ set and return only the completed template
     return (h * 3600) + (m * 60) + s;
   }
 
-  document.getElementById('hoursUp').addEventListener('click', () => {
+  document.getElementById('hoursUp')?.addEventListener('click', () => {
     examHours.value = (parseInt(examHours.value, 10) || 0) + 1;
     clampField(examHours, 0, 23);
     updateGenerateBtn();
   });
-  document.getElementById('hoursDown').addEventListener('click', () => {
+  document.getElementById('hoursDown')?.addEventListener('click', () => {
     examHours.value = (parseInt(examHours.value, 10) || 0) - 1;
     clampField(examHours, 0, 23);
     updateGenerateBtn();
   });
   examHours.addEventListener('input', () => { clampField(examHours, 0, 23); updateGenerateBtn(); });
 
-  document.getElementById('minutesUp').addEventListener('click', () => {
+  document.getElementById('minutesUp')?.addEventListener('click', () => {
     examMinutes.value = (parseInt(examMinutes.value, 10) || 0) + 5;
     clampField(examMinutes, 0, 59);
     updateGenerateBtn();
   });
-  document.getElementById('minutesDown').addEventListener('click', () => {
+  document.getElementById('minutesDown')?.addEventListener('click', () => {
     examMinutes.value = (parseInt(examMinutes.value, 10) || 0) - 5;
     clampField(examMinutes, 0, 59);
     updateGenerateBtn();
   });
   examMinutes.addEventListener('input', () => { clampField(examMinutes, 0, 59); updateGenerateBtn(); });
 
-  document.getElementById('secondsUp').addEventListener('click', () => {
+  document.getElementById('secondsUp')?.addEventListener('click', () => {
     examSeconds.value = (parseInt(examSeconds.value, 10) || 0) + 5;
     clampField(examSeconds, 0, 59);
     updateGenerateBtn();
   });
-  document.getElementById('secondsDown').addEventListener('click', () => {
+  document.getElementById('secondsDown')?.addEventListener('click', () => {
     examSeconds.value = (parseInt(examSeconds.value, 10) || 0) - 5;
     clampField(examSeconds, 0, 59);
     updateGenerateBtn();
@@ -3187,7 +3187,12 @@ Fill the blank template using the MCQ set and return only the completed template
     accountSwitching = false;
     const switcher=document.getElementById('accountSwitcherView');
     if(switcher) switcher.style.display='none';
-    if(accountUser) accountHeading.textContent='Welcome back';
+
+    /* This function can run during initial app navigation, before the
+       accountHeading const is initialized. Resolve it from the DOM here
+       so the early navigation path cannot hit the temporal dead zone. */
+    const heading=document.getElementById('accountHeading');
+    if(accountUser && heading) heading.textContent='Welcome back';
   }
   function setAccountMode(mode){
     accountMode = mode;
