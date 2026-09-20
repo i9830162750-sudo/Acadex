@@ -1004,6 +1004,12 @@ app.get('/exam/:id', async(req, res) => {
 .pdf-page-count{min-width:34px;padding:5px 6px;border-radius:8px;background:rgba(255,255,255,.88);color:#222;font-size:11px;font-weight:800;text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.14);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
 .pdf-scroll-track{width:5px;height:min(52vh,420px);border-radius:99px;background:rgba(0,0,0,.14);position:relative}
 .pdf-scroll-thumb{position:absolute;left:0;width:100%;min-height:30px;border-radius:99px;background:rgba(30,30,30,.6);transition:top .08s linear}
+.pdf-scroll-markers{position:absolute;inset:0;pointer-events:none}
+.pdf-scroll-marker{position:absolute;left:50%;width:9px;height:9px;padding:0;transform:translate(-50%,-50%);border:1px solid rgba(255,255,255,.85);border-radius:50%;background:rgba(30,30,30,.72);cursor:pointer;pointer-events:auto;box-shadow:0 2px 6px rgba(0,0,0,.18)}
+.pdf-scroll-marker:hover{transform:translate(-50%,-50%) scale(1.25);background:#fff;color:#111}
+#app.pdf-mode.pdf-reading .pdf-reader-rail{opacity:.88;pointer-events:auto}
+#app.pdf-mode.pdf-reading .pdf-scroll-marker{background:rgba(255,255,255,.7);border-color:rgba(255,255,255,.9)}
+
 .pdf-zoom-controls{display:flex;flex-direction:column;gap:4px;pointer-events:auto}
 .pdf-zoom-btn{width:34px;height:30px;border:1px solid rgba(0,0,0,.1);border-radius:9px;background:rgba(255,255,255,.88);color:#222;font-weight:900;font-size:16px;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.12);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
 .pdf-zoom-btn:active{transform:scale(.95)}
