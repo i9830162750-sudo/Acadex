@@ -35,14 +35,22 @@ const ACADEX_MOBILE_NAV_FIX = `
     min-height:0!important;
   }
   .mobile-nav{
-    height:calc(68px + var(--acadex-system-nav-inset, env(safe-area-inset-bottom)))!important;
-    min-height:calc(68px + var(--acadex-system-nav-inset, env(safe-area-inset-bottom)))!important;
-    padding-bottom:calc(7px + var(--acadex-system-nav-inset, env(safe-area-inset-bottom)))!important;
+    position:fixed!important;
+    left:0!important;
+    right:0!important;
+    bottom:var(--acadex-system-nav-inset, env(safe-area-inset-bottom))!important;
+    top:auto!important;
+    width:100%!important;
+    height:68px!important;
+    min-height:68px!important;
+    padding:7px 0 7px!important;
     box-sizing:border-box!important;
+    z-index:9999!important;
+    flex:0 0 68px!important;
   }
   .content-scroll{
-    padding-bottom:clamp(12px, 2vh, 24px)!important;
-    scroll-padding-bottom:clamp(12px, 2vh, 24px)!important;
+    padding-bottom:calc(80px + var(--acadex-system-nav-inset, env(safe-area-inset-bottom)))!important;
+    scroll-padding-bottom:calc(80px + var(--acadex-system-nav-inset, env(safe-area-inset-bottom)))!important;
   }
   .home-panel.active{
     min-height:0!important;
