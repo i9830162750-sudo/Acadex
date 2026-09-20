@@ -1271,7 +1271,6 @@ async function renderPDF(dataUrl){
     }
 
     if(pointers.size===1){
-      pinchStartDistance=0;
       const remaining=[...pointers.entries()][0];
       dragPointerId=remaining[0];
       const p=remaining[1];
@@ -1282,9 +1281,6 @@ async function renderPDF(dataUrl){
   };
   paper.addEventListener('pointerup',finishPointer);
   paper.addEventListener('pointercancel',finishPointer);
-  paper.addEventListener('pointerleave',e=>{
-    if(e.pointerType==='mouse' && pointers.has(e.pointerId))finishPointer(e);
-  });
 
   await renderPages(false);
 }
