@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const zlib = require('zlib');
+const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 require('dotenv').config( {
   path: '.env.local'
 });
@@ -18,6 +19,26 @@ const pool = new Pool( {
     rejectUnauthorized: false
   }
 });
+const b2Configured=Boolean(process.env.B2_ENDPOINT&&process.env.B2_REGION&&process.env.B2_BUCKET&&process.env.B2_KEY_ID&&process.env.B2_APPLICATION_KEY);
+const b2=b2Configured?new S3Client({endpoint:process.env.B2_ENDPOINT,region:process.env.B2_REGION,forcePathStyle:true,credentials:{accessKeyId:process.env.B2_KEY_ID,secretAccessKey:process.env.B2_APPLICATION_KEY}}):null;
+function requireB2(){if(!b2)throw new Error('Backblaze B2 storage is not configured.');return b2;}
+function pdfBufferFromDataUrl(dataUrl){
+  if(typeof dataUrl!=='string')throw new Error('PDF data is missing.');
+  if(dataUrl.startsWith('data:application/pdf+gzip;base64,'))dataUrl=decompressPdfDataUrl(dataUrl);
+  if(!dataUrl.startsWith('data:application/pdf;base64,'))throw new Error('Invalid PDF data.');
+  return Buffer.from(dataUrl.slice(dataUrl.indexOf(',')+1),'base64');
+}
+async function uploadPdfToB2(examId,dataUrl){
+  const key=`exams/${examId}.pdf`;
+  await requireB2().send(new PutObjectCommand({Bucket:process.env.B2_BUCKET,Key:key,Body:pdfBufferFromDataUrl(dataUrl),ContentType:'application/pdf',CacheControl:'private, max-age=3600'}));
+  return key;
+}
+async function getPdfDataUrlFromB2(key){
+  const out=await requireB2().send(new GetObjectCommand({Bucket:process.env.B2_BUCKET,Key:key}));
+  const chunks=[];for await(const chunk of out.Body)chunks.push(Buffer.from(chunk));
+  return 'data:application/pdf;base64,'+Buffer.concat(chunks).toString('base64');
+}
+async function deletePdfFromB2(key){if(key&&b2)await b2.send(new DeleteObjectCommand({Bucket:process.env.B2_BUCKET,Key:key}));}
 const app = express();
 app.use(cors());
 app.use(express.json( {
@@ -295,7 +316,8 @@ async function initDatabase(){
       id TEXT PRIMARY KEY, 
       title TEXT NOT NULL, 
       type TEXT NOT NULL DEFAULT 'pdf', 
-      pdf_data_url TEXT, 
+      pdf_data_url TEXT,
+      pdf_object_key TEXT, 
       questions_json JSONB, 
       student_password TEXT NOT NULL, 
       duration_ms BIGINT NOT NULL, 
@@ -318,6 +340,7 @@ async function initDatabase(){
     ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS device_id TEXT;
     ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS student_user_id TEXT REFERENCES users(id) ON DELETE SET NULL;
     ALTER TABLE exams ADD COLUMN IF NOT EXISTS owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE exams ADD COLUMN IF NOT EXISTS pdf_object_key TEXT;
     CREATE TABLE IF NOT EXISTS exam_folders (
       id TEXT PRIMARY KEY,
       owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -363,14 +386,26 @@ async function initDatabase(){
     CREATE INDEX IF NOT EXISTS idx_exam_submissions_exam ON exam_submissions(exam_id);
     CREATE INDEX IF NOT EXISTS idx_exam_submissions_student ON exam_submissions(exam_id, student_id);
   `);
-  await compressStoredPdfs();
+  await migratePdfsToB2();
   console.log('Neon database ready.');
 }
 
+async function migratePdfsToB2(){
+  if(!b2Configured){console.warn('Backblaze B2 is not configured; existing PDFs remain in Neon.');return;}
+  const {rows}=await pool.query(`SELECT id,pdf_data_url FROM exams WHERE type='pdf' AND pdf_data_url IS NOT NULL AND (pdf_object_key IS NULL OR pdf_object_key='')`);
+  let migrated=0;
+  for(const row of rows){
+    try{const key=await uploadPdfToB2(row.id,row.pdf_data_url);await pool.query('UPDATE exams SET pdf_object_key=$1,pdf_data_url=NULL WHERE id=$2',[key,row.id]);migrated++;}
+    catch(error){console.error('Could not migrate PDF exam '+row.id+' to B2:',error);}
+  }
+  if(migrated)console.log('Migrated '+migrated+' PDF exam'+(migrated===1?'':'s')+' from Neon to Backblaze B2.');
+}
 async function getExam(id){
-  const { rows } = await pool.query(`SELECT id,title,type,pdf_data_url,questions_json,student_password,duration_ms,created_at,owner_user_id FROM exams WHERE id=$1`,[id]);
-  const exam=rows[0] || null;
-  if(exam?.pdf_data_url) exam.pdf_data_url=decompressPdfDataUrl(exam.pdf_data_url);
+  const { rows } = await pool.query(`SELECT id,title,type,pdf_data_url,pdf_object_key,questions_json,student_password,duration_ms,created_at,owner_user_id FROM exams WHERE id=$1`,[id]);
+  const exam=rows[0]||null;
+  if(!exam)return null;
+  if(exam.pdf_object_key)exam.pdf_data_url=await getPdfDataUrlFromB2(exam.pdf_object_key);
+  else if(exam.pdf_data_url)exam.pdf_data_url=decompressPdfDataUrl(exam.pdf_data_url);
   return exam;
 }
 function parseQuestions(exam){
@@ -549,33 +584,40 @@ app.delete('/api/teacher/folders/:id', async(req,res)=>{
 app.get('/api/teacher/exams/:id', async(req,res)=>{
   try{
     const u=await requireRole(req,res,'teacher'); if(!u)return;
-    const {rows}=await pool.query(`SELECT e.id,e.title,e.type,e.pdf_data_url,e.questions_json,e.student_password,e.duration_ms,e.created_at,e.owner_user_id,e.folder_id,f.name AS folder_name FROM exams e LEFT JOIN exam_folders f ON f.id=e.folder_id WHERE e.id=$1 AND e.owner_user_id=$2`,[req.params.id,u.id]);
+    const {rows}=await pool.query(`SELECT e.id,e.title,e.type,e.pdf_data_url,e.pdf_object_key,e.questions_json,e.student_password,e.duration_ms,e.created_at,e.owner_user_id,e.folder_id,f.name AS folder_name FROM exams e LEFT JOIN exam_folders f ON f.id=e.folder_id WHERE e.id=$1 AND e.owner_user_id=$2`,[req.params.id,u.id]);
     const e=rows[0]; if(!e)return res.status(404).json({error:'Exam not found.'});
-    res.json({id:e.id,title:e.title,type:e.type,pdfDataUrl:decompressPdfDataUrl(e.pdf_data_url||null),questions:parseQuestions(e),studentPassword:e.student_password,durationMs:Number(e.duration_ms),createdAt:Number(e.created_at),folderId:e.folder_id||null,folderName:e.folder_name||null,url:(process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/exam/${encodeURIComponent(e.id)}`});
+    if(e.pdf_object_key)e.pdf_data_url=await getPdfDataUrlFromB2(e.pdf_object_key);
+    else if(e.pdf_data_url)e.pdf_data_url=decompressPdfDataUrl(e.pdf_data_url);
+    res.json({id:e.id,title:e.title,type:e.type,pdfDataUrl:e.pdf_data_url||null,questions:parseQuestions(e),studentPassword:e.student_password,durationMs:Number(e.duration_ms),createdAt:Number(e.created_at),folderId:e.folder_id||null,folderName:e.folder_name||null,url:(process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/exam/${encodeURIComponent(e.id)}`});
   }catch(err){console.error(err);res.status(500).json({error:'Could not load exam.'});}
 });
 app.patch('/api/teacher/exams/:id', async(req,res)=>{
   try{
-    const u=await requireRole(req,res,'teacher'); if(!u)return;
-    const current=await pool.query('SELECT id,title,type,pdf_data_url,questions_json,student_password,duration_ms,folder_id FROM exams WHERE id=$1 AND owner_user_id=$2',[req.params.id,u.id]);
-    const e=current.rows[0]; if(!e)return res.status(404).json({error:'Exam not found.'});
+    const u=await requireRole(req,res,'teacher');if(!u)return;
+    const current=await pool.query('SELECT id,title,type,pdf_data_url,pdf_object_key,questions_json,student_password,duration_ms,folder_id,allow_retake,max_attempts FROM exams WHERE id=$1 AND owner_user_id=$2',[req.params.id,u.id]);
+    const e=current.rows[0];if(!e)return res.status(404).json({error:'Exam not found.'});
     const body=req.body||{};
     const title=body.title===undefined?e.title:String(body.title||'').trim();
     const password=body.studentPassword===undefined?e.student_password:String(body.studentPassword||'');
     const duration=body.durationMs===undefined?Number(e.duration_ms):Number(body.durationMs);
     const type=body.type===undefined?e.type:String(body.type);
+    const allowRetake=body.allowRetake===undefined?Boolean(e.allow_retake):Boolean(body.allowRetake);
+    const maxAttempts=body.maxAttempts===undefined?e.max_attempts:(body.maxAttempts===null||body.maxAttempts===''?null:Number(body.maxAttempts));
     if(!title)return res.status(400).json({error:'title is required'});
     if(!password)return res.status(400).json({error:'studentPassword is required'});
     if(!Number.isFinite(duration)||duration<=0)return res.status(400).json({error:'durationMs must be a positive number'});
     if(!['pdf','template'].includes(type))return res.status(400).json({error:'type must be pdf or template'});
-    let pdf=e.pdf_data_url||null, questions=parseQuestions(e);
+    let pdfObjectKey=e.pdf_object_key||null,questions=parseQuestions(e),pdf=null;
     if(type==='pdf'){
-      if(body.pdfDataUrl!==undefined) pdf=body.pdfDataUrl;
-      if(pdf&&pdf.startsWith('data:application/pdf+gzip;base64,')) pdf=decompressPdfDataUrl(pdf);
-      if(!pdf||typeof pdf!=='string'||!pdf.startsWith('data:application/pdf'))return res.status(400).json({error:'pdfDataUrl must be a base64 PDF data URL'});
-      pdf=compressPdfDataUrl(pdf);
+      if(body.pdfDataUrl!==undefined){
+        await uploadPdfToB2(req.params.id,body.pdfDataUrl);
+        pdfObjectKey='exams/'+req.params.id+'.pdf';
+      }else if(!pdfObjectKey){
+        return res.status(400).json({error:'pdfDataUrl is required for PDF exams'});
+      }
       questions=[];
     }else{
+      pdfObjectKey=null;
       questions=body.questions===undefined?questions:body.questions;
       if(!Array.isArray(questions)||!questions.length)return res.status(400).json({error:'template exams require at least one question'});
       for(const q of questions){
@@ -583,28 +625,28 @@ app.patch('/api/teacher/exams/:id', async(req,res)=>{
         if(q.type==='mcq'&&(!Array.isArray(q.options)||q.options.length!==4||q.options.some(o=>typeof o!=='string'||!o.trim())||!Number.isInteger(Number(q.answer))||Number(q.answer)<0||Number(q.answer)>3))return res.status(400).json({error:'invalid MCQ question'});
         if(q.type==='tf'&&q.answer!=='true'&&q.answer!=='false')return res.status(400).json({error:'invalid True/False question'});
       }
-      pdf=null;
     }
     let folderId=e.folder_id||null;
     if(body.folderId!==undefined){
       folderId=body.folderId===null||body.folderId===''?null:String(body.folderId);
       if(folderId){const f=await pool.query('SELECT id FROM exam_folders WHERE id=$1 AND owner_user_id=$2',[folderId,u.id]);if(!f.rows[0])return res.status(400).json({error:'Folder not found.'});}
     }
-    await pool.query('UPDATE exams SET title=$1,type=$2,pdf_data_url=$3,questions_json=$4,student_password=$5,duration_ms=$6,folder_id=$7,allow_retake=$8,max_attempts=$9 WHERE id=$10 AND owner_user_id=$11',[title,type,pdf,type==='template'?JSON.stringify(questions):null,password,duration,folderId,allowRetake,maxAttempts,e.id,u.id]);
+    await pool.query('UPDATE exams SET title=$1,type=$2,pdf_data_url=NULL,pdf_object_key=$3,questions_json=$4,student_password=$5,duration_ms=$6,folder_id=$7,allow_retake=$8,max_attempts=$9 WHERE id=$10 AND owner_user_id=$11',[title,type,pdfObjectKey,type==='template'?JSON.stringify(questions):null,password,duration,folderId,allowRetake,maxAttempts,e.id,u.id]);
+    if(type==='template'&&e.pdf_object_key)await deletePdfFromB2(e.pdf_object_key);
     const baseUrl=process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`;
     res.json({ok:true,examId:e.id,url:`${baseUrl}/exam/${encodeURIComponent(e.id)}`});
   }catch(err){console.error(err);res.status(500).json({error:'Could not save exam changes.'});}
 });
 app.delete('/api/teacher/exams/:id', async(req,res)=>{
   try{
-    const u=await requireRole(req,res,'teacher'); if(!u)return;
+    const u=await requireRole(req,res,'teacher');if(!u)return;
+    const current=await pool.query('SELECT id,pdf_object_key FROM exams WHERE id=$1 AND owner_user_id=$2',[req.params.id,u.id]);
+    if(!current.rows[0])return res.status(404).json({error:'Exam not found.'});
     const result=await pool.query('DELETE FROM exams WHERE id=$1 AND owner_user_id=$2 RETURNING id',[req.params.id,u.id]);
-    if(!result.rows[0]) return res.status(404).json({error:'Exam not found.'});
+    if(!result.rows[0])return res.status(404).json({error:'Exam not found.'});
+    if(current.rows[0].pdf_object_key)await deletePdfFromB2(current.rows[0].pdf_object_key);
     res.json({ok:true,examId:result.rows[0].id});
-  }catch(err){
-    console.error(err);
-    res.status(500).json({error:'Could not delete exam.'});
-  }
+  }catch(err){console.error(err);res.status(500).json({error:'Could not delete exam.'});}
 });
 app.get('/api/teacher/exams/:id/results', async(req,res)=>{
   try{
@@ -756,7 +798,8 @@ app.post('/exam/create', async(req, res) => {
       safeFolderId=String(folderId);
     }
     const examId='exam_'+crypto.randomBytes(12).toString('hex');
-    await pool.query(`INSERT INTO exams(id,title,type,pdf_data_url,questions_json,student_password,duration_ms,created_at,owner_user_id,folder_id,allow_retake,max_attempts) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[examId,title,type,type==='pdf'?compressPdfDataUrl(pdfDataUrl):null,type==='template'?JSON.stringify(questions):null,studentPassword,durationMs,Date.now(),user.id,safeFolderId,safeAllowRetake,safeMaxAttempts]);
+    const pdfObjectKey=type==='pdf'?await uploadPdfToB2(examId,pdfDataUrl):null;
+    await pool.query(`INSERT INTO exams(id,title,type,pdf_data_url,pdf_object_key,questions_json,student_password,duration_ms,created_at,owner_user_id,folder_id,allow_retake,max_attempts) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,[examId,title,type,null,pdfObjectKey,type==='template'?JSON.stringify(questions):null,studentPassword,durationMs,Date.now(),user.id,safeFolderId,safeAllowRetake,safeMaxAttempts]);
     const baseUrl=process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
     res.json({examId,url:`${baseUrl}/exam/${examId}`});
   }catch(error){ console.error('Create exam error:', error); res.status(500).json({error:'Failed to create exam'}); }
