@@ -204,67 +204,27 @@ app.get('/install', (req,res) => {
 
 app.get('/', (req,res) => {
   try {
+    const file = path.join(__dirname, 'public', 'pwa-loader.html');
+    res.set('Cache-Control','public, max-age=0, must-revalidate');
+    res.type('html').send(fs.readFileSync(file, 'utf8'));
+  } catch (_) {
+    res.status(500).send('Acadex is unavailable.');
+  }
+});
+
+
+app.get('/app/acadex-app-7f3c9e21', (req,res) => {
+  try {
     const file = path.join(__dirname, 'public', 'index.html');
     let html = fs.readFileSync(file, 'utf8');
-    const bootGate = `
-<style id="acadex-boot-gate">
-html:not([data-acadex-boot-ready]) body{visibility:hidden!important;}
-</style>
-<script id="acadex-boot-gate-script">
-(function(){
-  var standalone=window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true;
-  if(!standalone){
-    location.replace('/install');
-    return;
-  }
-
-  /*
-    Acadex startup is intentionally gated on the backend being alive.
-    The loading screen stays in place until the server responds successfully.
-    There is no fixed timeout: failed/timeout requests simply retry forever.
-  */
-  var retryDelay=10000;
-  var requestTimeout=12000;
-
-  function checkServer(){
-    var controller = 'AbortController' in window ? new AbortController() : null;
-    var timer = controller ? setTimeout(function(){ controller.abort(); }, requestTimeout) : null;
-    var url='/api/health?boot=' + Date.now();
-
-    fetch(url,{
-      method:'GET',
-      cache:'no-store',
-      credentials:'same-origin',
-      signal:controller ? controller.signal : undefined
-    }).then(function(response){
-      if(timer) clearTimeout(timer);
-      if(!response.ok) throw new Error('Server not ready');
-      document.documentElement.setAttribute('data-acadex-boot-ready','1');
-    }).catch(function(){
-      if(timer) clearTimeout(timer);
-      setTimeout(checkServer,retryDelay);
-    });
-  }
-
-  checkServer();
-})();
-</script>`;
-    html = html.replace('</head>', '<meta name="acadex-ui" content="combined"><style id="acadex-ui-endpoint">html,body{min-width:0;}body{overflow-x:hidden;}</style>' + ACADEX_MOBILE_NAV_FIX + bootGate + '</head>');
-    res.set('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate');
+    html = html.replace('</head>', '<meta name="acadex-ui" content="combined"><style id="acadex-ui-endpoint">html,body{min-width:0;}body{overflow-x:hidden;}</style>' + ACADEX_MOBILE_NAV_FIX + '</head>');
+    res.set('Cache-Control','no-store, no-cache, must-revalidate');
     res.type('html').send(html);
   } catch (_) {
     res.status(500).send('Acadex app is unavailable.');
   }
 });
 
-app.get('/app/acadex-app-7f3c9e21', (req,res) => {
-  try {
-    const file = path.join(__dirname, 'public', 'pwa-entry.html');
-    res.type('html').send(fs.readFileSync(file, 'utf8'));
-  } catch (_) {
-    res.status(500).send('Acadex PWA entry is unavailable.');
-  }
-});
 
 app.use(express.static(path.join(__dirname, 'public')));
 function makeToken() {
@@ -994,6 +954,7 @@ $('showLogin').addEventListener('click',()=>setAccountMode('login'));$('showRegi
 });
 
 initDatabase().then(()=>{const PORT=process.env.PORT||3000;app.listen(PORT,()=>console.log(`Exam backend listening on port ${PORT}`));}).catch(error=>{console.error('Database initialization failed:',error);process.exit(1)});
+
 
 
 
