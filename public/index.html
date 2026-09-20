@@ -2778,7 +2778,11 @@ Fill the blank template using the MCQ set and return only the completed template
       const pdfDataUrl = await readFileAsDataUrl(selectedFile, controller.signal);
       if(controller.signal.aborted) throw new DOMException('Generation cancelled', 'AbortError');
 
-      const timer = setTimeout(() => controller.abort(), 20000);
+      let generationTimedOut = false;
+      const timer = setTimeout(() => {
+        generationTimedOut = true;
+        controller.abort();
+      }, 20000);
       let res;
       try {
         res = await fetch(API_BASE_URL + '/exam/create', {
@@ -2824,9 +2828,11 @@ Fill the blank template using the MCQ set and return only the completed template
       goToPanel(5);
       showToast('✅ Hosted exam created!', 'success', 3000);
     } catch (err) {
-      if(err?.name === 'AbortError') return;
+      if(err?.name === 'AbortError' && !generationTimedOut) return;
       goToPanel(3);
-      if (err.message === 'PING_FAILED') {
+      if (generationTimedOut) {
+        showToast('Exam generation timed out. Try again.', 'error', 4000);
+      } else if (err.message === 'PING_FAILED') {
         showToast('You are offline. Reconnect and try again.', 'error', 4000);
       } else if (err.message === 'Failed to read the PDF.') {
         showToast('Failed to read the PDF. Please try again.', 'error', 4000);
