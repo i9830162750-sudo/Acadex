@@ -1,7 +1,8 @@
 const CACHE = 'acadex-v__BUILD_TS__';
 const STATIC_ASSETS = [
   '/manifest.json',
-  '/pwa-loader.html',
+  '/app/acadex-app-7f3c9e21',
+  '/install',
   '/icons/acadex-icon.svg',
   '/icons/acadex-minimal.svg',
   '/icons/acadex-tab.svg',
