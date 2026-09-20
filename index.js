@@ -32,14 +32,16 @@ const ACADEX_MOBILE_NAV_FIX = `
     padding-bottom:calc(140px + env(safe-area-inset-bottom))!important;
     scroll-padding-bottom:calc(140px + env(safe-area-inset-bottom))!important;
   }
-  /* Android system navigation bar: keep the whole Acadex UI above the bottom buttons. */
+  /* Android system navigation bar: keep content clear of the system buttons without adding a visible gap. */
   .app{
-    height:calc(100dvh - 48px)!important;
-    min-height:calc(100dvh - 48px)!important;
+    height:100dvh!important;
+    min-height:100dvh!important;
+    padding-bottom:env(safe-area-inset-bottom)!important;
+    box-sizing:border-box!important;
   }
   .main{
-    height:calc(100dvh - 48px)!important;
-    min-height:calc(100dvh - 48px)!important;
+    height:100%!important;
+    min-height:0!important;
   }
 }
 </style>`;
