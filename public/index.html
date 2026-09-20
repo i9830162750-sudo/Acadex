@@ -2731,10 +2731,15 @@ Fill the blank template using the MCQ set and return only the completed template
       })
       .catch((err) => {
         resetGenerateBtn();
-        if (err.message === 'PING_FAILED' || err.name === 'AbortError') {
+        if (err.message === 'PING_FAILED') {
           showErrorBanner(
-            "Couldn't connect to the exam server",
-            'Render may still be waking up. You can try again in a moment.'
+            'You are offline',
+            'Reconnect to the internet before creating a hosted exam.'
+          );
+        } else if (err.name === 'AbortError') {
+          showErrorBanner(
+            "Couldn't reach Acadex",
+            'The request timed out. Check your connection and try again.'
           );
         } else if (err.message === 'Failed to read the PDF.') {
           showToast('Failed to read the PDF. Please try again.', 'error');
@@ -2885,10 +2890,15 @@ Fill the blank template using the MCQ set and return only the completed template
       })
       .catch((err) => {
         resetGenerateBtn();
-        if (err.message === 'PING_FAILED' || err.name === 'AbortError') {
+        if (err.message === 'PING_FAILED') {
           showErrorBanner(
-            "Couldn't connect to the exam server",
-            'Render may still be waking up. Try again in a moment.'
+            'You are offline',
+            'Reconnect to the internet before creating a hosted exam.'
+          );
+        } else if (err.name === 'AbortError') {
+          showErrorBanner(
+            "Couldn't reach Acadex",
+            'The request timed out. Check your connection and try again.'
           );
         } else {
           showErrorBanner(
