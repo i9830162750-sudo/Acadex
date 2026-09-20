@@ -1149,16 +1149,27 @@ body.student-role .student-only-nav{display:flex!important;}
               </div>
               <!-- Storage -->
               <div id="settingsStorageWrap" style="margin-top:18px;display:none">
-                <div style="margin-bottom:8px;font:700 .78rem Inter,sans-serif;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.08em">Local Storage Used</div>
+                <div style="margin-bottom:8px;font:700 .78rem Inter,sans-serif;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.08em">Local Cache</div>
                 <div style="height:8px;border-radius:6px;background:var(--bg-sunken);overflow:hidden;margin-bottom:6px"><div id="settingsStorageBar" style="height:100%;border-radius:6px;background:var(--accent);width:0%;transition:width .4s ease"></div></div>
                 <div id="settingsStorageLabel" style="font-size:.78rem;color:var(--ink-soft)">Calculating…</div>
-                <div style="margin-top:16px">
-                  <div style="margin-bottom:8px;font:700 .78rem Inter,sans-serif;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.08em">Database Storage (Neon)</div>
-                  <div style="height:8px;border-radius:6px;background:var(--bg-sunken);overflow:hidden;margin-bottom:6px"><div id="settingsDbBar" style="height:100%;border-radius:6px;background:var(--accent);width:0%;transition:width .4s ease"></div></div>
-                  <div id="settingsDbLabel" style="font-size:.78rem;color:var(--ink-soft)">Fetching…</div>
-                </div>
               </div>
             </div>
+            <!-- Neon Storage Manager -->
+            <div class="home-card" style="margin-bottom:14px" id="settingsNeonCard" style="display:none">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                <h3 style="margin:0">Database Storage</h3>
+                <button type="button" id="settingsNeonRefresh" style="border:1px solid var(--line);background:var(--bg-sunken);color:var(--ink-soft);border-radius:8px;padding:5px 10px;font:700 .76rem Inter,sans-serif;cursor:pointer">↻ Refresh</button>
+              </div>
+              <p style="margin:0 0 14px;font-size:.82rem;color:var(--ink-soft)">Your exams stored in Neon. Delete ones you no longer need to free up space.</p>
+              <div style="margin-bottom:12px">
+                <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:.76rem;color:var(--ink-soft)"><span id="settingsDbTotalLabel">Loading…</span><span id="settingsDbPctLabel"></span></div>
+                <div style="height:8px;border-radius:6px;background:var(--bg-sunken);overflow:hidden"><div id="settingsDbBar" style="height:100%;border-radius:6px;background:var(--accent);width:0%;transition:width .4s ease"></div></div>
+              </div>
+              <div id="settingsExamList" style="display:grid;gap:8px;max-height:360px;overflow-y:auto">
+                <div style="text-align:center;padding:20px;color:var(--ink-faint);font-size:.82rem">Loading your exams…</div>
+              </div>
+            </div>
+
             <!-- About -->
             <div class="home-card" style="margin-bottom:14px">
               <h3 style="margin-bottom:10px">About Acadex</h3>
@@ -1903,11 +1914,14 @@ body.student-role .student-only-nav{display:flex!important;}
         document.getElementById('settingsAccountMeta').textContent=(accountUser.displayName||accountUser.email)+' · '+(accountUser.role==='teacher'?'Teacher':'Student');
         document.getElementById('settingsChangePasswordWrap').style.display='block';
         document.getElementById('settingsStorageWrap').style.display='block';
+        document.getElementById('settingsNeonCard').style.display='block';
         loadSettingsStorage();
+        loadSettingsNeonStorage();
       }else{
         document.getElementById('settingsAccountMeta').textContent='Sign in to manage your account.';
         document.getElementById('settingsChangePasswordWrap').style.display='none';
         document.getElementById('settingsStorageWrap').style.display='none';
+        document.getElementById('settingsNeonCard').style.display='none';
       }
       // sync theme buttons
       const curTheme=document.documentElement.getAttribute('data-theme-pref')||'system';
@@ -3838,31 +3852,84 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
     btn.disabled=false; btn.textContent='Update password';
   });
 
+  const fmtBytes=b=>b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':b<1073741824?(b/1048576).toFixed(1)+' MB':(b/1073741824).toFixed(2)+' GB';
+
   function loadSettingsStorage(){
-    const fmt=b=>b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':b<1073741824?(b/1048576).toFixed(1)+' MB':(b/1073741824).toFixed(2)+' GB';
     if(!navigator.storage||!navigator.storage.estimate){
-      document.getElementById('settingsStorageLabel').textContent='Storage API not available in this browser.';
-    }else{
-      navigator.storage.estimate().then(est=>{
-        const used=est.usage||0, quota=est.quota||0;
-        const pct=quota>0?Math.min(100,(used/quota)*100):0;
-        document.getElementById('settingsStorageBar').style.width=pct.toFixed(1)+'%';
-        document.getElementById('settingsStorageBar').style.background=pct>80?'var(--danger)':pct>60?'var(--warn)':'var(--accent)';
-        document.getElementById('settingsStorageLabel').textContent=quota>0?fmt(used)+' used of '+fmt(quota)+' ('+pct.toFixed(1)+'%)':fmt(used)+' used';
-      }).catch(()=>{document.getElementById('settingsStorageLabel').textContent='Could not read storage usage.';});
+      document.getElementById('settingsStorageLabel').textContent='Not available in this browser.';
+      return;
     }
-    accountFetch('/api/admin/db-size').then(r=>r.json()).then(d=>{
-      if(d.usedBytes!=null){
-        const used=d.usedBytes, limit=512*1024*1024;
-        const pct=Math.min(100,(used/limit)*100);
-        document.getElementById('settingsDbBar').style.width=pct.toFixed(1)+'%';
-        document.getElementById('settingsDbBar').style.background=pct>80?'var(--danger)':pct>60?'var(--warn)':'var(--accent)';
-        document.getElementById('settingsDbLabel').textContent=fmt(used)+' used of '+fmt(limit)+' free tier ('+pct.toFixed(1)+'%)';
-      }else{
-        document.getElementById('settingsDbLabel').textContent=d.error||'Could not fetch DB size.';
-      }
-    }).catch(()=>{document.getElementById('settingsDbLabel').textContent='Could not fetch DB size.';});
+    navigator.storage.estimate().then(est=>{
+      const used=est.usage||0,quota=est.quota||0;
+      const pct=quota>0?Math.min(100,(used/quota)*100):0;
+      document.getElementById('settingsStorageBar').style.width=pct.toFixed(1)+'%';
+      document.getElementById('settingsStorageBar').style.background=pct>80?'var(--danger)':pct>60?'var(--warn)':'var(--accent)';
+      document.getElementById('settingsStorageLabel').textContent=quota>0?fmtBytes(used)+' of '+fmtBytes(quota)+' ('+pct.toFixed(1)+'%)':fmtBytes(used)+' used';
+    }).catch(()=>{document.getElementById('settingsStorageLabel').textContent='Could not read.';});
   }
+
+  function loadSettingsNeonStorage(){
+    const list=document.getElementById('settingsExamList');
+    const totalLabel=document.getElementById('settingsDbTotalLabel');
+    const pctLabel=document.getElementById('settingsDbPctLabel');
+    const bar=document.getElementById('settingsDbBar');
+    if(list) list.innerHTML='<div style="text-align:center;padding:20px;color:var(--ink-faint);font-size:.82rem">Loading…</div>';
+    accountFetch('/api/admin/my-storage').then(r=>r.json()).then(d=>{
+      if(d.error){if(list)list.innerHTML='<div style="color:var(--danger);font-size:.82rem;padding:8px">'+d.error+'</div>';return;}
+      const total=d.totalBytes||0, limit=512*1024*1024;
+      const pct=Math.min(100,(total/limit)*100);
+      if(bar){bar.style.width=pct.toFixed(1)+'%';bar.style.background=pct>80?'var(--danger)':pct>60?'var(--warn)':'var(--accent)';}
+      if(totalLabel)totalLabel.textContent=fmtBytes(total)+' of 512 MB free tier used';
+      if(pctLabel)pctLabel.textContent=pct.toFixed(1)+'%';
+      if(!list)return;
+      if(!d.exams||!d.exams.length){
+        list.innerHTML='<div style="text-align:center;padding:20px;color:var(--ink-faint);font-size:.82rem">No exams yet.</div>';
+        return;
+      }
+      list.innerHTML='';
+      d.exams.forEach(exam=>{
+        const row=document.createElement('div');
+        row.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;border:1px solid var(--line);border-radius:11px;background:var(--bg);';
+        const info=document.createElement('div');
+        info.style.cssText='min-width:0;flex:1';
+        const sizePct=Math.min(100,(exam.totalBytes/limit)*100);
+        const barColor=sizePct>5?'var(--danger)':sizePct>2?'var(--warn)':'var(--accent)';
+        info.innerHTML=
+          '<div style="font:700 .84rem Inter,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+
+            escHtml(exam.title)+
+            '<span style="margin-left:7px;font:600 .7rem Inter,sans-serif;color:var(--ink-faint);text-transform:uppercase">'+exam.type+'</span>'+
+          '</div>'+
+          '<div style="display:flex;align-items:center;gap:8px;margin-top:5px">'+
+            '<div style="flex:1;height:4px;border-radius:3px;background:var(--bg-sunken);overflow:hidden"><div style="height:100%;border-radius:3px;background:'+barColor+';width:'+sizePct.toFixed(2)+'%"></div></div>'+
+            '<span style="font-size:.72rem;color:var(--ink-soft);white-space:nowrap">'+fmtBytes(exam.totalBytes)+(exam.submissionCount?' · '+exam.submissionCount+' result'+(exam.submissionCount!==1?'s':''):'')+'</span>'+
+          '</div>';
+        const del=document.createElement('button');
+        del.type='button';
+        del.textContent='Delete';
+        del.style.cssText='flex:0 0 auto;border:1px solid var(--danger);background:transparent;color:var(--danger);border-radius:8px;padding:6px 11px;font:700 .76rem Inter,sans-serif;cursor:pointer;white-space:nowrap';
+        del.addEventListener('click',()=>{
+          if(!confirm('Delete "'+exam.title+'" and all its results? This cannot be undone.'))return;
+          del.disabled=true;del.textContent='Deleting…';
+          accountFetch('/api/teacher/exams/'+encodeURIComponent(exam.id),{method:'DELETE'})
+            .then(r=>r.json()).then(resp=>{
+              if(resp.error){del.disabled=false;del.textContent='Delete';showToast(resp.error,'error');return;}
+              row.style.opacity='0';row.style.transition='opacity .2s';
+              setTimeout(()=>{row.remove();loadSettingsNeonStorage();},220);
+              showToast('Exam deleted.','success',2200);
+              loadTeacherDashboard&&loadTeacherDashboard();
+              loadHomeStats&&loadHomeStats();
+            }).catch(()=>{del.disabled=false;del.textContent='Delete';showToast('Could not delete.','error');});
+        });
+        row.appendChild(info);
+        row.appendChild(del);
+        list.appendChild(row);
+      });
+    }).catch(()=>{if(list)list.innerHTML='<div style="color:var(--danger);font-size:.82rem;padding:8px">Could not load storage data.</div>';});
+  }
+
+  function escHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+  document.getElementById('settingsNeonRefresh')?.addEventListener('click',loadSettingsNeonStorage);
 
   showAppView('home');
 </script>
@@ -4267,5 +4334,6 @@ button,input,select,textarea{max-width:100%;font:inherit;}
   .home-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));}
 }
 </style>
+
 
 
