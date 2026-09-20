@@ -193,16 +193,7 @@ const ACADEX_MOBILE_NAV_FIX = `
 
 
 app.get('/', (req,res) => {
-  try {
-    const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(req.get('user-agent') || '');
-    if (mobile && !req.query.acadexBoot) return res.redirect(302, '/install');
-    const file = path.join(__dirname, 'public', 'index.html');
-    const html = fs.readFileSync(file, 'utf8');
-    const finalHtml = ui === 'mobile' && html.includes('</head>') ? html.replace('</head>', ACADEX_MOBILE_NAV_FIX + '</head>') : html;
-    res.type('html').send(finalHtml);
-  } catch (_) {
-    res.status(500).send('Acadex frontend is unavailable.');
-  }
+  res.redirect(302, '/install');
 });
 
 app.get('/install', (req,res) => {
