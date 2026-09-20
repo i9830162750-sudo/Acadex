@@ -3932,15 +3932,20 @@ window.acadexSetIcon = function(el, name, preserveLabel=false) {
   .main{min-height:100dvh!important;}
   .content-scroll{flex:1 1 auto!important;min-height:0!important;padding-bottom:24px!important;}
   .action-bar{
-    position:static!important;
-    inset:auto!important;
-    bottom:auto!important;
+    position:fixed!important;
+    left:0!important;
+    right:0!important;
+    bottom:68px!important;
+    width:100%!important;
     margin:0!important;
     padding:12px 16px!important;
-    flex:0 0 auto!important;
-    width:100%!important;
     box-sizing:border-box!important;
-    z-index:auto!important;
+    z-index:2999!important;
+    background:var(--bg-elev)!important;
+    border-top:1px solid var(--line)!important;
+  }
+  .content-scroll{
+    padding-bottom:calc(92px + 68px + env(safe-area-inset-bottom))!important;
   }
   /* Keep the mobile navigation fixed at the bottom on every app view, including Create Exam. */
 }
