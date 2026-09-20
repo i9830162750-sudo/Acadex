@@ -1083,6 +1083,16 @@ body.student-role .student-only-nav{display:flex!important;}
           <label class="field-label">🎓 Student Password</label>
           <input type="text" class="text-input" id="studentPassword" placeholder="e.g. bio2025" maxlength="64" autocomplete="off" spellcheck="false" />
           <p class="hint">Anyone with this password can start the exam — the timer begins immediately.</p>
+          <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
+            <label style="display:flex;align-items:center;gap:10px;font-weight:800;cursor:pointer">
+              <input type="checkbox" id="allowRetake" style="width:18px;height:18px">
+              Allow retakes
+            </label>
+            <p class="hint">Students can start another attempt after submitting their current attempt.</p>
+            <label class="field-label" for="maxAttempts" style="display:block;margin-top:12px">Maximum attempts</label>
+            <input type="number" class="text-input" id="maxAttempts" min="1" step="1" placeholder="Unlimited" disabled>
+            <p class="hint">Leave empty for unlimited attempts. This only applies when retakes are enabled.</p>
+          </div>
           <div class="notice" style="margin-top:14px;">⚠️ Keep this password private and share it only when you're ready for students to begin.</div>
         </section>
 
@@ -1364,6 +1374,8 @@ body.student-role .student-only-nav{display:flex!important;}
   const generateBtn = document.getElementById('generateBtn');
   const examTitle       = document.getElementById('examTitle');
   const studentPassword = document.getElementById('studentPassword');
+  const allowRetake = document.getElementById('allowRetake');
+  const maxAttempts = document.getElementById('maxAttempts');
   const examFolder = document.getElementById('examFolder');
   const newFolderBtn = document.getElementById('newFolderBtn');
   const toast           = document.getElementById('toast');
@@ -2135,6 +2147,15 @@ Fill the blank template using the MCQ set and return only the completed template
   /* ═══════════════════════════════════════════════════════════════
      GENERATE BUTTON STATE
   ═══════════════════════════════════════════════════════════════ */
+  function syncAttemptControls(){
+    if(!allowRetake||!maxAttempts)return;
+    maxAttempts.disabled=!allowRetake.checked;
+    if(!allowRetake.checked) maxAttempts.value='';
+  }
+  allowRetake?.addEventListener('change',()=>{syncAttemptControls();updateGenerateBtn();});
+  maxAttempts?.addEventListener('input',updateGenerateBtn);
+  syncAttemptControls();
+
   function updateGenerateBtn() {
     const titleValid = examTitle.value.trim().length > 0;
     const passwordValid = studentPassword.value.trim().length > 0;
@@ -2650,7 +2671,9 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
               type: 'template',
               questions: questions,
               pdfDataUrl: pdfDataUrl,
-              folderId: selectedFolderId || null
+              folderId: selectedFolderId || null,
+              allowRetake: !!allowRetake?.checked,
+              maxAttempts: allowRetake?.checked && maxAttempts?.value ? Number(maxAttempts.value) : null
             })
           }).then((res) => {
             clearTimeout(timer);
@@ -3236,7 +3259,7 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
     if(!examId||!accountUser||accountUser.role!=='teacher')return;
     try{
       const r=await accountFetch('/api/teacher/exams/'+encodeURIComponent(examId));const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not load exam.');
-      editingExamId=examId; editingExamOriginalType=d.type||'pdf'; examType=d.type||'pdf'; examTitle.value=d.title||''; studentPassword.value=d.studentPassword||''; selectedFolderId=d.folderId||''; questions=Array.isArray(d.questions)?JSON.parse(JSON.stringify(d.questions)):[];
+      editingExamId=examId; editingExamOriginalType=d.type||'pdf'; examType=d.type||'pdf'; examTitle.value=d.title||''; studentPassword.value=d.studentPassword||''; selectedFolderId=d.folderId||''; if(allowRetake)allowRetake.checked=!!d.allowRetake; if(maxAttempts)maxAttempts.value=d.maxAttempts==null?'':String(d.maxAttempts); syncAttemptControls(); questions=Array.isArray(d.questions)?JSON.parse(JSON.stringify(d.questions)):[];
       const total=Math.max(1,Math.floor(Number(d.durationMs||60000)/1000)); examHours.value=Math.floor(total/3600); examMinutes.value=Math.floor((total%3600)/60); examSeconds.value=total%60;
       clearFile(); if(d.type==='pdf'&&d.pdfDataUrl){selectedFile=dataUrlToFile(d.pdfDataUrl,(d.title||'exam').replace(/[^a-z0-9]+/gi,'-').toLowerCase()+'.pdf');fileName.textContent=selectedFile.name;fileSize.textContent=formatBytes(selectedFile.size);filePreview.classList.add('visible');}
       setExamType(d.type||'pdf'); renderQuestions(); updateGenerateBtn(); showAppView('create'); showToast('Editing exam.','success',2200);
@@ -3245,7 +3268,7 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
   async function saveEditedExam(){
     if(!editingExamId)return false;
     try{
-      const body={title:examTitle.value.trim(),studentPassword:studentPassword.value.trim(),durationMs:getTotalSeconds()*1000,type:examType,folderId:selectedFolderId||null};
+      const body={title:examTitle.value.trim(),studentPassword:studentPassword.value.trim(),durationMs:getTotalSeconds()*1000,type:examType,folderId:selectedFolderId||null,allowRetake:!!allowRetake?.checked,maxAttempts:allowRetake?.checked&&maxAttempts?.value?Number(maxAttempts.value):null};
       if(examType==='template')body.questions=questions; else {if(!selectedFile)throw new Error('Upload the exam PDF before saving.');body.pdfDataUrl=await readFileAsDataUrl(selectedFile);}
       const r=await accountFetch('/api/teacher/exams/'+encodeURIComponent(editingExamId),{method:'PATCH',body:JSON.stringify(body)});const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not save exam changes.');
       showToast('✓ Exam changes saved.','success',3000); editingExamId='';editingExamOriginalType=''; await loadTeacherDashboard();await loadHomeStats();showAppView('workspace');return true;
