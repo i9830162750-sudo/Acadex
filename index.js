@@ -4,6 +4,7 @@ const cors = require('cors');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
+const zlib = require('zlib');
 require('dotenv').config( {
   path: '.env.local'
 });
@@ -243,6 +244,35 @@ function escapeHtml(value) {
   return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+function compressPdfDataUrl(dataUrl){
+  if(typeof dataUrl!=='string'||!dataUrl.startsWith('data:application/pdf;base64,')) return dataUrl;
+  const comma=dataUrl.indexOf(',');
+  if(comma<0)return dataUrl;
+  const source=Buffer.from(dataUrl.slice(comma+1),'base64');
+  const compressed=zlib.gzipSync(source,{level:9});
+  return 'data:application/pdf+gzip;base64,'+compressed.toString('base64');
+}
+function decompressPdfDataUrl(dataUrl){
+  if(typeof dataUrl!=='string'||!dataUrl.startsWith('data:application/pdf+gzip;base64,')) return dataUrl;
+  const comma=dataUrl.indexOf(',');
+  if(comma<0)return dataUrl;
+  const compressed=Buffer.from(dataUrl.slice(comma+1),'base64');
+  const source=zlib.gunzipSync(compressed);
+  return 'data:application/pdf;base64,'+source.toString('base64');
+}
+async function compressStoredPdfs(){
+  const {rows}=await pool.query("SELECT id,pdf_data_url FROM exams WHERE type='pdf' AND pdf_data_url LIKE 'data:application/pdf;base64,%'");
+  if(!rows.length)return;
+  let saved=0;
+  for(const row of rows){
+    const compressed=compressPdfDataUrl(row.pdf_data_url);
+    if(compressed!==row.pdf_data_url){
+      await pool.query('UPDATE exams SET pdf_data_url=$1 WHERE id=$2',[compressed,row.id]);
+      saved++;
+    }
+  }
+  if(saved)console.log('Compressed '+saved+' existing PDF exam file'+(saved===1?'':'s')+' losslessly.');
+}
 async function initDatabase(){
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -333,12 +363,15 @@ async function initDatabase(){
     CREATE INDEX IF NOT EXISTS idx_exam_submissions_exam ON exam_submissions(exam_id);
     CREATE INDEX IF NOT EXISTS idx_exam_submissions_student ON exam_submissions(exam_id, student_id);
   `);
+  await compressStoredPdfs();
   console.log('Neon database ready.');
 }
 
 async function getExam(id){
   const { rows } = await pool.query(`SELECT id,title,type,pdf_data_url,questions_json,student_password,duration_ms,created_at,owner_user_id FROM exams WHERE id=$1`,[id]);
-  return rows[0] || null;
+  const exam=rows[0] || null;
+  if(exam?.pdf_data_url) exam.pdf_data_url=decompressPdfDataUrl(exam.pdf_data_url);
+  return exam;
 }
 function parseQuestions(exam){
   if(!exam.questions_json) return [];
@@ -518,7 +551,7 @@ app.get('/api/teacher/exams/:id', async(req,res)=>{
     const u=await requireRole(req,res,'teacher'); if(!u)return;
     const {rows}=await pool.query(`SELECT e.id,e.title,e.type,e.pdf_data_url,e.questions_json,e.student_password,e.duration_ms,e.created_at,e.owner_user_id,e.folder_id,f.name AS folder_name FROM exams e LEFT JOIN exam_folders f ON f.id=e.folder_id WHERE e.id=$1 AND e.owner_user_id=$2`,[req.params.id,u.id]);
     const e=rows[0]; if(!e)return res.status(404).json({error:'Exam not found.'});
-    res.json({id:e.id,title:e.title,type:e.type,pdfDataUrl:e.pdf_data_url||null,questions:parseQuestions(e),studentPassword:e.student_password,durationMs:Number(e.duration_ms),createdAt:Number(e.created_at),folderId:e.folder_id||null,folderName:e.folder_name||null,url:(process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/exam/${encodeURIComponent(e.id)}`});
+    res.json({id:e.id,title:e.title,type:e.type,pdfDataUrl:decompressPdfDataUrl(e.pdf_data_url||null),questions:parseQuestions(e),studentPassword:e.student_password,durationMs:Number(e.duration_ms),createdAt:Number(e.created_at),folderId:e.folder_id||null,folderName:e.folder_name||null,url:(process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/exam/${encodeURIComponent(e.id)}`});
   }catch(err){console.error(err);res.status(500).json({error:'Could not load exam.'});}
 });
 app.patch('/api/teacher/exams/:id', async(req,res)=>{
@@ -538,7 +571,9 @@ app.patch('/api/teacher/exams/:id', async(req,res)=>{
     let pdf=e.pdf_data_url||null, questions=parseQuestions(e);
     if(type==='pdf'){
       if(body.pdfDataUrl!==undefined) pdf=body.pdfDataUrl;
+      if(pdf&&pdf.startsWith('data:application/pdf+gzip;base64,')) pdf=decompressPdfDataUrl(pdf);
       if(!pdf||typeof pdf!=='string'||!pdf.startsWith('data:application/pdf'))return res.status(400).json({error:'pdfDataUrl must be a base64 PDF data URL'});
+      pdf=compressPdfDataUrl(pdf);
       questions=[];
     }else{
       questions=body.questions===undefined?questions:body.questions;
@@ -721,7 +756,7 @@ app.post('/exam/create', async(req, res) => {
       safeFolderId=String(folderId);
     }
     const examId='exam_'+crypto.randomBytes(12).toString('hex');
-    await pool.query(`INSERT INTO exams(id,title,type,pdf_data_url,questions_json,student_password,duration_ms,created_at,owner_user_id,folder_id,allow_retake,max_attempts) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[examId,title,type,type==='pdf'?pdfDataUrl:null,type==='template'?JSON.stringify(questions):null,studentPassword,durationMs,Date.now(),user.id,safeFolderId,safeAllowRetake,safeMaxAttempts]);
+    await pool.query(`INSERT INTO exams(id,title,type,pdf_data_url,questions_json,student_password,duration_ms,created_at,owner_user_id,folder_id,allow_retake,max_attempts) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[examId,title,type,type==='pdf'?compressPdfDataUrl(pdfDataUrl):null,type==='template'?JSON.stringify(questions):null,studentPassword,durationMs,Date.now(),user.id,safeFolderId,safeAllowRetake,safeMaxAttempts]);
     const baseUrl=process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
     res.json({examId,url:`${baseUrl}/exam/${examId}`});
   }catch(error){ console.error('Create exam error:', error); res.status(500).json({error:'Failed to create exam'}); }
