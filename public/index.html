@@ -3374,7 +3374,8 @@ Fill the blank template using the MCQ set and return only the completed template
       if(!r.ok) throw new Error(d.error||'Could not load exam submissions');
       const rows=d.results||[];
       title.textContent=d.exam?.title||'Exam submissions';
-      summary.textContent=d.pdf
+      const isPdf=Boolean(d.pdf)||d.exam?.type==='pdf';
+      summary.textContent=isPdf
         ? rows.length+' attempt'+(rows.length===1?'':'s')
         : rows.length+' submission'+(rows.length===1?'':'s');
 
@@ -3395,7 +3396,7 @@ Fill the blank template using the MCQ set and return only the completed template
         };
       }
 
-      if(d.pdf){
+      if(isPdf){
         list.innerHTML=rows.length ? rows.map(x=>{
           const submitted=Boolean(x.submitted);
           const when=submitted&&x.submittedAt?new Date(Number(x.submittedAt)).toLocaleString():x.attemptedAt?new Date(Number(x.attemptedAt)).toLocaleString():'';
