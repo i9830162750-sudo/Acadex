@@ -300,10 +300,19 @@ async function initDatabase(){
     CREATE INDEX IF NOT EXISTS idx_exam_sessions_exam ON exam_sessions(exam_id);
     CREATE INDEX IF NOT EXISTS idx_exam_sessions_device ON exam_sessions(exam_id, device_id);
     CREATE INDEX IF NOT EXISTS idx_exam_sessions_student ON exam_sessions(exam_id, student_id);
+    /*
+      Session identity is not globally unique: student IDs such as "Class VIII"
+      can be shared, and a device can legitimately create a later attempt.
+      Active-session checks are handled by the application below. Remove the
+      legacy database-level uniqueness constraints so finished attempts never
+      block a new attempt.
+    */
     ALTER TABLE exam_sessions DROP CONSTRAINT IF EXISTS uq_exam_sessions_exam_student;
     ALTER TABLE exam_sessions DROP CONSTRAINT IF EXISTS uq_exam_sessions_exam_device;
-    CREATE UNIQUE INDEX IF NOT EXISTS uq_exam_sessions_exam_student_active ON exam_sessions(exam_id, student_id) WHERE finished_at IS NULL;
-    CREATE UNIQUE INDEX IF NOT EXISTS uq_exam_sessions_exam_device_active ON exam_sessions(exam_id, device_id) WHERE finished_at IS NULL;
+    DROP INDEX IF EXISTS uq_exam_sessions_exam_student;
+    DROP INDEX IF EXISTS uq_exam_sessions_exam_device;
+    DROP INDEX IF EXISTS uq_exam_sessions_exam_student_active;
+    DROP INDEX IF EXISTS uq_exam_sessions_exam_device_active;
     CREATE TABLE IF NOT EXISTS exam_submissions (
       id TEXT PRIMARY KEY, 
       exam_id TEXT NOT NULL REFERENCES exams(id) ON DELETE CASCADE, 
