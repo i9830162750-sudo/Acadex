@@ -52,8 +52,41 @@ const ACADEX_MOBILE_NAV_FIX = `
     padding-bottom:calc(80px + var(--acadex-system-nav-inset, env(safe-area-inset-bottom)))!important;
     scroll-padding-bottom:calc(80px + var(--acadex-system-nav-inset, env(safe-area-inset-bottom)))!important;
   }
+  .main{
+    height:calc(100dvh - 68px)!important;
+    min-height:0!important;
+    overflow:hidden!important;
+  }
+  .content-scroll{
+    height:100%!important;
+    min-height:0!important;
+    overflow-y:auto!important;
+    overscroll-behavior-y:contain!important;
+  }
   .home-panel.active{
     min-height:0!important;
+    height:auto!important;
+  }
+  #appHome .home-wrap{
+    padding-bottom:4px!important;
+  }
+  #appHome .home-hero{
+    padding-top:clamp(6px,1.5vh,12px)!important;
+    padding-bottom:clamp(4px,1vh,8px)!important;
+  }
+  #appHome .home-grid{
+    margin-top:4px!important;
+    gap:8px!important;
+  }
+  #appHome .home-card{
+    padding:clamp(10px,2.5vw,14px)!important;
+  }
+  #appHome .home-stat-grid{
+    margin-top:8px!important;
+    gap:6px!important;
+  }
+  #appHome .home-stat{
+    padding:8px!important;
   }
   .home-wrap{
     width:100%!important;
