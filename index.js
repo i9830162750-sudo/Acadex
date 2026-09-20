@@ -52,16 +52,27 @@ const ACADEX_MOBILE_NAV_FIX = `
     padding-bottom:calc(80px + var(--acadex-system-nav-inset, env(safe-area-inset-bottom)))!important;
     scroll-padding-bottom:calc(80px + var(--acadex-system-nav-inset, env(safe-area-inset-bottom)))!important;
   }
-  .main{
-    height:calc(100dvh - 68px)!important;
+  .app{
+    height:100dvh!important;
     min-height:0!important;
     overflow:hidden!important;
   }
-  .content-scroll{
-    height:100%!important;
+  .main{
+    height:calc(100dvh - 68px)!important;
     min-height:0!important;
+    max-height:calc(100dvh - 68px)!important;
+    overflow:hidden!important;
+    display:flex!important;
+    flex-direction:column!important;
+  }
+  .content-scroll{
+    height:auto!important;
+    min-height:0!important;
+    max-height:100%!important;
+    flex:1 1 auto!important;
     overflow-y:auto!important;
     overscroll-behavior-y:contain!important;
+    box-sizing:border-box!important;
   }
   .home-panel.active{
     min-height:0!important;
