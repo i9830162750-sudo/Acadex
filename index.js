@@ -198,7 +198,8 @@ app.get('/', (req,res) => {
     if (mobile && !req.query.acadexBoot) return res.redirect(302, '/install');
     const file = path.join(__dirname, 'public', 'index.html');
     const html = fs.readFileSync(file, 'utf8');
-    res.type('html').send(html.includes('</head>') ? html.replace('</head>', ACADEX_MOBILE_NAV_FIX + '</head>') : html);
+    const finalHtml = ui === 'mobile' && html.includes('</head>') ? html.replace('</head>', ACADEX_MOBILE_NAV_FIX + '</head>') : html;
+    res.type('html').send(finalHtml);
   } catch (_) {
     res.status(500).send('Acadex frontend is unavailable.');
   }
