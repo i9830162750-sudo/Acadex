@@ -1357,19 +1357,19 @@ body.student-role .student-only-nav{display:flex!important;}
                 <div id="settingsStorageLabel" style="font-size:.78rem;color:var(--ink-soft)">Calculating…</div>
               </div>
             </div>
-            <!-- Neon Storage Manager -->
-            <div class="home-card" style="margin-bottom:14px" id="settingsNeonCard" style="display:none">
+            <!-- B2 Storage Manager -->
+            <div class="home-card" style="margin-bottom:14px;display:none" id="settingsNeonCard">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-                <h3 style="margin:0">Database Storage</h3>
+                <h3 style="margin:0">B2 Storage</h3>
                 <button type="button" id="settingsNeonRefresh" style="border:1px solid var(--line);background:var(--bg-sunken);color:var(--ink-soft);border-radius:8px;padding:5px 10px;font:700 .76rem Inter,sans-serif;cursor:pointer">↻ Refresh</button>
               </div>
-              <p style="margin:0 0 14px;font-size:.82rem;color:var(--ink-soft)">Your exams stored in Neon. Delete ones you no longer need to free up space.</p>
+              <p style="margin:0 0 14px;font-size:.82rem;color:var(--ink-soft)">Exam PDFs and question sets are stored in Backblaze B2. Neon keeps only exam/account metadata and submission records.</p>
               <div style="margin-bottom:12px">
                 <div style="display:flex;justify-content:space-between;margin-bottom:5px;font-size:.76rem;color:var(--ink-soft)"><span id="settingsDbTotalLabel">Loading…</span><span id="settingsDbPctLabel"></span></div>
                 <div style="height:8px;border-radius:6px;background:var(--bg-sunken);overflow:hidden"><div id="settingsDbBar" style="height:100%;border-radius:6px;background:var(--accent);width:0%;transition:width .4s ease"></div></div>
               </div>
               <div id="settingsExamList" style="display:grid;gap:8px;max-height:360px;overflow-y:auto">
-                <div style="text-align:center;padding:20px;color:var(--ink-faint);font-size:.82rem">Loading your exams…</div>
+                <div style="text-align:center;padding:20px;color:var(--ink-faint);font-size:.82rem">Loading B2 storage…</div>
               </div>
             </div>
 
@@ -3737,10 +3737,10 @@ Fill the blank template using the MCQ set and return only the completed template
     if(list) list.innerHTML='<div style="text-align:center;padding:20px;color:var(--ink-faint);font-size:.82rem">Loading…</div>';
     accountFetch('/api/admin/my-storage').then(r=>r.json()).then(d=>{
       if(d.error){if(list)list.innerHTML='<div style="color:var(--danger);font-size:.82rem;padding:8px">'+d.error+'</div>';return;}
-      const total=d.totalBytes||0, limit=512*1024*1024;
+      const total=d.totalExamBytes||0, limit=10*1024*1024*1024;
       const pct=Math.min(100,(total/limit)*100);
       if(bar){bar.style.width=pct.toFixed(1)+'%';bar.style.background=pct>80?'var(--danger)':pct>60?'var(--warn)':'var(--accent)';}
-      if(totalLabel)totalLabel.textContent=fmtBytes(total)+' of 512 MB free tier used';
+      if(totalLabel)totalLabel.textContent=fmtBytes(total)+' of 10 GB B2 storage used';
       if(pctLabel)pctLabel.textContent=pct.toFixed(1)+'%';
       if(!list)return;
       if(!d.exams||!d.exams.length){
