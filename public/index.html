@@ -1650,6 +1650,13 @@ body.student-role .student-only-nav{display:flex!important;}
     </div>
     <div class="detail-drawer-body">
       <div class="results-summary" id="teacherResultsSummary"></div>
+      <div class="teacher-exam-link-row" id="teacherExamLinkRow" style="display:none;">
+        <div class="teacher-exam-link-wrap">
+          <span class="teacher-exam-link-label">Exam link</span>
+          <a id="teacherExamLink" href="#" target="_blank" rel="noopener noreferrer"></a>
+        </div>
+        <button type="button" class="exam-card-action teacher-exam-copy" id="teacherExamCopyBtn">Copy</button>
+      </div>
       <div id="teacherResultsList"></div>
     </div>
   </section>
@@ -1695,6 +1702,23 @@ body.student-role .student-only-nav{display:flex!important;}
 <div class="toast" id="toast"></div>
 
 
+<style id="acadex-teacher-exam-link-style">
+#teacherResultsOverlay .teacher-exam-link-row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin:0 0 14px;
+  padding:10px 12px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--bg);
+}
+.teacher-exam-link-wrap{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px;}
+.teacher-exam-link-label{font-size:.72rem;font-weight:800;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.04em;}
+#teacherExamLink{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--accent);font-size:.82rem;font-weight:700;text-decoration:none;}
+#teacherExamLink:hover{text-decoration:underline;}
+.teacher-exam-copy{flex:0 0 auto!important;white-space:nowrap!important;}
+</style>
 <style id="acadex-teacher-result-drawer-fix">
 /* Teacher exam results open from the exam itself as a document-level drawer.
    Header stays fixed while only the results body scrolls. */
@@ -1880,7 +1904,8 @@ body.student-role .student-only-nav{display:flex!important;}
       step.classList.toggle('active', n === currentPanel);
       step.classList.toggle('done', n < currentPanel);
     });
-    navPrevBtn.style.visibility = currentPanel === 0 ? 'hidden' : 'visible';
+    navPrevBtn.style.visibility = (currentPanel === 0) ? 'hidden' : 'visible';
+    navPrevBtn.textContent = currentPanel === TOTAL_PANELS - 1 ? 'Close' : '← Back';
     const isLast = currentPanel === TOTAL_PANELS - 1;
     const isGenerate = currentPanel === 4;
     navNextBtn.style.display   = (isLast || isGenerate) ? 'none' : 'inline-flex';
@@ -1889,7 +1914,13 @@ body.student-role .student-only-nav{display:flex!important;}
   }
 
   navSteps.forEach(s => s.addEventListener('click', () => goToPanel(Number(s.dataset.panel))));
-  navPrevBtn.addEventListener('click', () => goToPanel(currentPanel - 1));
+  navPrevBtn.addEventListener('click', () => {
+    if(currentPanel === TOTAL_PANELS - 1){
+      showAppView('workspace');
+      return;
+    }
+    goToPanel(currentPanel - 1);
+  });
   navNextBtn.addEventListener('click', () => goToPanel(currentPanel + 1));
 
   /* ═══════════════════════════════════════════════════════════════
@@ -3344,6 +3375,26 @@ Fill the blank template using the MCQ set and return only the completed template
       const rows=d.results||[];
       title.textContent=d.exam?.title||'Exam results';
       summary.textContent=rows.length+' submission'+(rows.length===1?'':'s');
+      const examLinkRow=document.getElementById('teacherExamLinkRow');
+      const examLink=document.getElementById('teacherExamLink');
+      const examCopy=document.getElementById('teacherExamCopyBtn');
+      const examUrl=d.exam?.url||'';
+      if(examLinkRow&&examLink){
+        examLinkRow.style.display=examUrl?'flex':'none';
+        examLink.href=examUrl||'#';
+        examLink.textContent=examUrl||'';
+      }
+      if(examCopy){
+        examCopy.onclick=async()=>{
+          if(!examUrl)return;
+          try{
+            await navigator.clipboard.writeText(examUrl);
+            showToast('Exam link copied!','success',2200);
+          }catch(_){
+            showToast('Could not copy the exam link.','error',3000);
+          }
+        };
+      }
       list.innerHTML=rows.length ? rows.map(x=>`<div class="attempt-card"><div class="attempt-main"><div class="attempt-name">${escapeHtmlForGenerated(x.student_name||'Unnamed student')}</div><div class="attempt-meta">${escapeHtmlForGenerated(x.student_id||'No Student ID')} · ${x.submitted_at?new Date(Number(x.submitted_at)).toLocaleString():''}</div></div><div class="attempt-score">${Number(x.score)||0}/${Number(x.total)||0} · ${Number(x.percentage||0).toFixed(1)}%</div><button type="button" class="attempt-open" data-submission-id="${escapeHtmlForGenerated(x.id||'')}">View</button></div>`).join('') : '<div class="empty-dash">No students have submitted this exam yet.</div>';
       list.querySelectorAll('.attempt-open').forEach(btn=>btn.addEventListener('click',()=>openTeacherSubmission(btn.dataset.submissionId)));
     }catch(e){
