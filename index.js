@@ -57,19 +57,29 @@ const ACADEX_MOBILE_NAV_FIX = `
     min-height:0!important;
     overflow:hidden!important;
   }
+  .topbar{
+    position:fixed!important;
+    top:0!important;
+    left:0!important;
+    right:0!important;
+    width:100%!important;
+    height:58px!important;
+    z-index:10000!important;
+  }
   .main{
-    height:calc(100dvh - 68px)!important;
+    height:100dvh!important;
     min-height:0!important;
-    max-height:calc(100dvh - 68px)!important;
+    max-height:none!important;
     overflow:hidden!important;
-    display:flex!important;
-    flex-direction:column!important;
+    display:block!important;
+    padding-top:58px!important;
+    padding-bottom:calc(68px + var(--acadex-system-nav-inset, env(safe-area-inset-bottom)))!important;
+    box-sizing:border-box!important;
   }
   .content-scroll{
-    height:auto!important;
+    height:100%!important;
     min-height:0!important;
-    max-height:100%!important;
-    flex:1 1 auto!important;
+    max-height:none!important;
     overflow-y:auto!important;
     overscroll-behavior-y:contain!important;
     box-sizing:border-box!important;
