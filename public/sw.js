@@ -1,5 +1,7 @@
-const CACHE = 'acadex-v-20260920-3';
+const CACHE = 'acadex-v-20260920-4';
 const STATIC_ASSETS = [
+  '/',
+  '/install',
   '/manifest.json',
   '/icons/acadex-icon.svg',
   '/icons/acadex-minimal.svg',
@@ -9,7 +11,11 @@ const STATIC_ASSETS = [
 
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(STATIC_ASSETS).catch(() => {}))
+    caches.open(CACHE).then(async cache => {
+      await Promise.allSettled(
+        STATIC_ASSETS.map(asset => cache.add(asset).catch(() => null))
+      );
+    })
   );
 });
 
@@ -48,9 +54,26 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Never serve the PWA boot/install routes from an old cache.
+  // App-shell/navigation routes use network-first while online and fall
+  // back to the cached shell when Render is unavailable or the device is
+  // offline. The app itself no longer performs a startup Render health check.
   if (url.pathname === '/app/acadex-app-7f3c9e21' || url.pathname === '/install' || url.pathname === '/') {
-    event.respondWith(fetch(event.request));
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          if (response && response.status === 200 && response.type !== 'opaque') {
+            const copy = response.clone();
+            caches.open(CACHE).then(c => c.put(event.request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request).then(cached =>
+          cached || new Response('Offline', {
+            status: 503,
+            headers: {'Content-Type': 'text/plain'}
+          })
+        ))
+    );
     return;
   }
 
