@@ -1207,6 +1207,11 @@ body.student-role .student-only-nav{display:flex!important;}
 .generate-note{border:1px solid var(--line);background:var(--bg-elev);border-radius:12px;padding:22px;margin-top:10px}
 .generate-note strong{font:800 1rem 'DM Sans',sans-serif}
 .generate-note p{margin-top:6px;color:var(--ink-soft);font-size:.82rem;line-height:1.5}
+.generation-state{min-height:360px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:36px 20px}
+.generation-state h2{font:700 1.45rem 'DM Sans',sans-serif;margin-top:18px;letter-spacing:-.01em}
+.generation-state p{margin-top:7px;color:var(--ink-faint);font-size:.9rem;line-height:1.5}
+.generation-spinner{width:34px;height:34px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--accent);animation:acadexGenerationSpin .8s linear infinite}
+@keyframes acadexGenerationSpin{to{transform:rotate(360deg)}}
 </style></head>
 <body>
 
@@ -1528,18 +1533,11 @@ body.student-role .student-only-nav{display:flex!important;}
 
         <!-- Panel 4: Generate -->
         <section class="panel" data-panel="4">
-          <div class="panel-head">
-            <h2>How should students access this?</h2>
-            <p>Create a hosted exam on the Acadex server and get a shareable link.</p>
+          <div class="generation-state">
+            <div class="generation-spinner" aria-hidden="true"></div>
+            <h2>Generating your exam</h2>
+            <p>Hang tight while we're generating your exam.</p>
           </div>
-          <div class="mode-toggle">
-            <button type="button" class="mode-btn active" id="modeHostedBtn" data-mode="hosted">
-              <span class="mode-title">Hosted Exam</span>
-              <span class="mode-desc">Creates an exam on the server and gives you a shareable link.</span>
-            </button>
-          </div>
-
-          <div class="generate-note"><strong>Ready to generate</strong><p>Acadex will create the exam on the server and give you a shareable link.</p></div>
         </section>
 
         <!-- Panel 5: Share -->
@@ -1821,6 +1819,7 @@ body.student-role .student-only-nav{display:flex!important;}
   }
   let currentPanel = 0;
   const TOTAL_PANELS = 6;
+  let activeGenerationController = null;
 
 
   async function accountFetch(path, options={}) {
@@ -1910,24 +1909,50 @@ body.student-role .student-only-nav{display:flex!important;}
       step.classList.toggle('active', n === currentPanel);
       step.classList.toggle('done', n < currentPanel);
     });
-    navPrevBtn.style.visibility = (currentPanel === 0) ? 'hidden' : 'visible';
-    navPrevBtn.textContent = currentPanel === TOTAL_PANELS - 1 ? 'Close' : '← Back';
-    const isLast = currentPanel === TOTAL_PANELS - 1;
+
+    const isPassword = currentPanel === 3;
     const isGenerate = currentPanel === 4;
-    navNextBtn.style.display   = (isLast || isGenerate) ? 'none' : 'inline-flex';
-    generateBtn.style.display  = isGenerate ? 'inline-flex' : 'none';
+    const isLast = currentPanel === TOTAL_PANELS - 1;
+
+    navPrevBtn.style.visibility = (currentPanel === 0) ? 'hidden' : 'visible';
+    navPrevBtn.textContent = isGenerate ? 'Cancel' : (isLast ? 'Close' : '← Back');
+
+    /* Password is the final setup screen: its Continue action starts generation. */
+    navNextBtn.style.display = (isLast || isGenerate) ? 'none' : 'inline-flex';
+    navNextBtn.textContent = isPassword ? 'Generate →' : 'Continue →';
+
+    /* The old standalone Generate button is no longer used in the create flow. */
+    generateBtn.style.display = 'none';
+
     document.querySelector('.content-scroll').scrollTop = 0;
   }
 
-  navSteps.forEach(s => s.addEventListener('click', () => goToPanel(Number(s.dataset.panel))));
+  navSteps.forEach(s => s.addEventListener('click', () => {
+    const target = Number(s.dataset.panel);
+    /* Never allow jumping into the live generation screen manually. */
+    if(target === 4) return;
+    goToPanel(target);
+  }));
+
   navPrevBtn.addEventListener('click', () => {
+    if(currentPanel === 4){
+      cancelExamGeneration();
+      return;
+    }
     if(currentPanel === TOTAL_PANELS - 1){
       showAppView('workspace');
       return;
     }
     goToPanel(currentPanel - 1);
   });
-  navNextBtn.addEventListener('click', () => goToPanel(currentPanel + 1));
+
+  navNextBtn.addEventListener('click', () => {
+    if(currentPanel === 3){
+      generateBtn.click();
+      return;
+    }
+    goToPanel(currentPanel + 1);
+  });
 
   /* ═══════════════════════════════════════════════════════════════
      AC ADEX PHASE 1 — APP VIEWS
@@ -2699,99 +2724,127 @@ Fill the blank template using the MCQ set and return only the completed template
     updateGenerateBtn();
   }
 
-  function readFileAsDataUrl(file) {
+  function readFileAsDataUrl(file, signal) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target.result);
-      reader.onerror = () => reject(new Error('Failed to read the PDF.'));
+      let settled = false;
+      const cleanup = () => signal?.removeEventListener('abort', onAbort);
+      const fail = (err) => {
+        if(settled) return;
+        settled = true;
+        cleanup();
+        reject(err);
+      };
+      const onAbort = () => {
+        try { reader.abort(); } catch (_) {}
+        fail(new DOMException('Generation cancelled', 'AbortError'));
+      };
+      reader.onload = (e) => {
+        if(settled) return;
+        settled = true;
+        cleanup();
+        resolve(e.target.result);
+      };
+      reader.onerror = () => fail(new Error('Failed to read the PDF.'));
+      reader.onabort = () => fail(new DOMException('Generation cancelled', 'AbortError'));
+      if(signal){
+        if(signal.aborted) return onAbort();
+        signal.addEventListener('abort', onAbort, {once:true});
+      }
       reader.readAsDataURL(file);
     });
   }
 
-  function generateHosted(title, totalSeconds, sPwd) {
+  function cancelExamGeneration() {
+    if(activeGenerationController){
+      activeGenerationController.abort();
+      activeGenerationController = null;
+      showToast('Exam generation cancelled.', '', 2200);
+      goToPanel(3);
+    }else if(currentPanel === 4){
+      goToPanel(3);
+    }
+  }
+
+  async function generateHosted(title, totalSeconds, sPwd) {
     hostedResult.classList.remove('visible');
     hideErrorBanner();
-    generateBtn.disabled = true;
-    generateBtn.querySelector('span').textContent = 'Processing PDF…';
+    const controller = new AbortController();
+    activeGenerationController = controller;
 
-    readFileAsDataUrl(selectedFile)
-      .then((pdfDataUrl) => {
-        generateBtn.querySelector('span').textContent = 'Creating hosted exam…';
-        if (!navigator.onLine) throw new Error('PING_FAILED');
-        return Promise.resolve().then(() => {
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 20000);
-          return fetch(API_BASE_URL + '/exam/create', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...(accountToken ? { Authorization: 'Bearer ' + accountToken } : {}) },
-            signal: controller.signal,
-            body: JSON.stringify({
-              title: title,
-              studentPassword: sPwd,
-              durationMs: totalSeconds * 1000,
-              type: 'pdf',
-              questions: [],
-              pdfDataUrl: pdfDataUrl,
-              folderId: selectedFolderId || null
-            })
-          }).then((res) => {
-            clearTimeout(timer);
-            if (!res.ok) {
-              return res.json().catch(() => ({})).then((body) => {
-                throw new Error(body.error || 'CREATE_FAILED');
-              });
-            }
-            return res.json();
-          });
+    try {
+      if (!navigator.onLine) throw new Error('PING_FAILED');
+
+      const pdfDataUrl = await readFileAsDataUrl(selectedFile, controller.signal);
+      if(controller.signal.aborted) throw new DOMException('Generation cancelled', 'AbortError');
+
+      const timer = setTimeout(() => controller.abort(), 20000);
+      let res;
+      try {
+        res = await fetch(API_BASE_URL + '/exam/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(accountToken ? { Authorization: 'Bearer ' + accountToken } : {}) },
+          signal: controller.signal,
+          body: JSON.stringify({
+            title: title,
+            studentPassword: sPwd,
+            durationMs: totalSeconds * 1000,
+            type: 'pdf',
+            questions: [],
+            pdfDataUrl: pdfDataUrl,
+            folderId: selectedFolderId || null
+          })
         });
-      })
-      .then((data) => {
-        if (!data || !data.url) throw new Error('INVALID_RESPONSE');
-        hostedUrlText.textContent = data.url;
-        hostedResult.classList.add('visible');
-        hrOpenBtn.onclick  = () => window.open(data.url, '_blank');
-        hrCopyBtn.onclick  = () => {
-          navigator.clipboard.writeText(data.url)
-            .then(() => showToast('Link copied!', 'success'))
-            .catch(() => showToast('Could not copy link.', 'error'));
-        };
-        hrShareBtn.onclick = () => {
-          if (navigator.share) {
-            navigator.share({ title: title, url: data.url }).catch(() => {});
-          } else {
-            navigator.clipboard.writeText(data.url)
-              .then(() => showToast('Link copied to share!', 'success'))
-              .catch(() => showToast('Could not copy link.', 'error'));
-          }
-        };
-        showToast('✅ Hosted exam created!', 'success', 4000);
-        resetGenerateBtn();
-        goToPanel(5);
-      })
-      .catch((err) => {
-        resetGenerateBtn();
-        if (err.message === 'PING_FAILED') {
-          showErrorBanner(
-            'You are offline',
-            'Reconnect to the internet before creating a hosted exam.'
-          );
-        } else if (err.name === 'AbortError') {
-          showErrorBanner(
-            "Couldn't reach Acadex",
-            'The request timed out. Check your connection and try again.'
-          );
-        } else if (err.message === 'Failed to read the PDF.') {
-          showToast('Failed to read the PDF. Please try again.', 'error');
+      } finally {
+        clearTimeout(timer);
+      }
+
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || 'CREATE_FAILED');
+      if (!body || !body.url) throw new Error('INVALID_RESPONSE');
+
+      hostedUrlText.textContent = body.url;
+      hostedResult.classList.add('visible');
+      hrOpenBtn.onclick = () => window.open(body.url, '_blank');
+      hrCopyBtn.onclick = () => {
+        navigator.clipboard.writeText(body.url)
+          .then(() => showToast('Link copied!', 'success'))
+          .catch(() => showToast('Could not copy link.', 'error'));
+      };
+      hrShareBtn.onclick = () => {
+        if (navigator.share) {
+          navigator.share({ title: title, url: body.url }).catch(() => {});
         } else {
-          showErrorBanner(
-            "Couldn't create the hosted exam",
-            (err.message && err.message !== 'CREATE_FAILED' && err.message !== 'INVALID_RESPONSE')
-              ? err.message
-              : 'Something went wrong talking to the exam server. You can try again in a moment.'
-          );
+          navigator.clipboard.writeText(body.url)
+            .then(() => showToast('Link copied to share!', 'success'))
+            .catch(() => showToast('Could not copy link.', 'error'));
         }
-      });
+      };
+
+      goToPanel(5);
+      showToast('✅ Hosted exam created!', 'success', 3000);
+    } catch (err) {
+      if(err?.name === 'AbortError') return;
+      goToPanel(3);
+      if (err.message === 'PING_FAILED') {
+        showToast('You are offline. Reconnect and try again.', 'error', 4000);
+      } else if (err.message === 'Failed to read the PDF.') {
+        showToast('Failed to read the PDF. Please try again.', 'error', 4000);
+      } else {
+        showToast(
+          err.message && !['CREATE_FAILED', 'INVALID_RESPONSE'].includes(err.message)
+            ? err.message
+            : 'Could not create the hosted exam.',
+          'error',
+          4500
+        );
+      }
+    } finally {
+      if(activeGenerationController === controller) activeGenerationController = null;
+      resetGenerateBtn();
+    }
   }
+
 
   generateBtn.addEventListener('click', () => {
     const missing = [];
@@ -2858,6 +2911,8 @@ Fill the blank template using the MCQ set and return only the completed template
 
     if(editingExamId){ saveEditedExam(); return; }
 
+    /* Enter the live generation screen immediately, then create in the background. */
+    goToPanel(4);
     if (examType === 'template') {
       generateTemplate(title, totalSeconds, sPwd);
     } else {
@@ -2869,85 +2924,71 @@ Fill the blank template using the MCQ set and return only the completed template
     generateHostedTemplate(title, totalSeconds, sPwd);
   }
 
-  function generateHostedTemplate(title, totalSeconds, sPwd) {
+  async function generateHostedTemplate(title, totalSeconds, sPwd) {
     hostedResult.classList.remove('visible');
     hideErrorBanner();
-    generateBtn.disabled = true;
-    generateBtn.querySelector('span').textContent = 'Creating hosted template…';
+    const controller = new AbortController();
+    activeGenerationController = controller;
 
-    if (!navigator.onLine) {
-      resetGenerateBtn();
-      showErrorBanner('You are offline', 'Reconnect to the internet before creating a hosted exam.');
-      return;
-    }
-    Promise.resolve()
-      .then(() => {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 20000);
-        return fetch(API_BASE_URL + '/exam/create', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(accountToken ? { Authorization: 'Bearer ' + accountToken } : {}) },
-          signal: controller.signal,
-          body: JSON.stringify({
-            title: title,
-            studentPassword: sPwd,
-            durationMs: totalSeconds * 1000,
-            type: 'template',
-            questions: questions,
-            folderId: selectedFolderId || null
-          })
-        }).then((res) => {
-          clearTimeout(timer);
-          return res.json().catch(() => ({})).then((body) => {
-            if (!res.ok) throw new Error(body.error || 'CREATE_FAILED');
-            return body;
-          });
-        });
-      })
-      .then((data) => {
-        if (!data || !data.url) throw new Error('INVALID_RESPONSE');
-        hostedUrlText.textContent = data.url;
-        hostedResult.classList.add('visible');
-        hrOpenBtn.onclick = () => window.open(data.url, '_blank');
-        hrCopyBtn.onclick = () => {
-          navigator.clipboard.writeText(data.url)
-            .then(() => showToast('Link copied!', 'success'))
-            .catch(() => showToast('Could not copy link.', 'error'));
-        };
-        hrShareBtn.onclick = () => {
-          if (navigator.share) {
-            navigator.share({ title: title, url: data.url }).catch(() => {});
-          } else {
-            navigator.clipboard.writeText(data.url)
-              .then(() => showToast('Link copied to share!', 'success'))
-              .catch(() => showToast('Could not copy link.', 'error'));
-          }
-        };
-        showToast('✅ Hosted template exam created!', 'success', 4000);
-        resetGenerateBtn();
-        goToPanel(5);
-      })
-      .catch((err) => {
-        resetGenerateBtn();
-        if (err.message === 'PING_FAILED') {
-          showErrorBanner(
-            'You are offline',
-            'Reconnect to the internet before creating a hosted exam.'
-          );
-        } else if (err.name === 'AbortError') {
-          showErrorBanner(
-            "Couldn't reach Acadex",
-            'The request timed out. Check your connection and try again.'
-          );
-        } else {
-          showErrorBanner(
-            "Couldn't create the hosted template exam",
-            err.message && !['CREATE_FAILED', 'INVALID_RESPONSE'].includes(err.message)
-              ? err.message
-              : 'Something went wrong talking to the exam server.'
-          );
-        }
+    try {
+      if (!navigator.onLine) throw new Error('PING_FAILED');
+
+      const res = await fetch(API_BASE_URL + '/exam/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(accountToken ? { Authorization: 'Bearer ' + accountToken } : {}) },
+        signal: controller.signal,
+        body: JSON.stringify({
+          title: title,
+          studentPassword: sPwd,
+          durationMs: totalSeconds * 1000,
+          type: 'template',
+          questions: questions,
+          folderId: selectedFolderId || null
+        })
       });
+
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || 'CREATE_FAILED');
+      if (!body || !body.url) throw new Error('INVALID_RESPONSE');
+
+      hostedUrlText.textContent = body.url;
+      hostedResult.classList.add('visible');
+      hrOpenBtn.onclick = () => window.open(body.url, '_blank');
+      hrCopyBtn.onclick = () => {
+        navigator.clipboard.writeText(body.url)
+          .then(() => showToast('Link copied!', 'success'))
+          .catch(() => showToast('Could not copy link.', 'error'));
+      };
+      hrShareBtn.onclick = () => {
+        if (navigator.share) {
+          navigator.share({ title: title, url: body.url }).catch(() => {});
+        } else {
+          navigator.clipboard.writeText(body.url)
+            .then(() => showToast('Link copied to share!', 'success'))
+            .catch(() => showToast('Could not copy link.', 'error'));
+        }
+      };
+
+      goToPanel(5);
+      showToast('✅ Hosted template exam created!', 'success', 3000);
+    } catch (err) {
+      if(err?.name === 'AbortError') return;
+      goToPanel(3);
+      if (err.message === 'PING_FAILED') {
+        showToast('You are offline. Reconnect and try again.', 'error', 4000);
+      } else {
+        showToast(
+          err.message && !['CREATE_FAILED', 'INVALID_RESPONSE'].includes(err.message)
+            ? err.message
+            : 'Could not create the hosted template exam.',
+          'error',
+          4500
+        );
+      }
+    } finally {
+      if(activeGenerationController === controller) activeGenerationController = null;
+      resetGenerateBtn();
+    }
   }
 
   const accountOverlay = document.getElementById('accountOverlay');
@@ -4138,6 +4179,31 @@ window.acadexSetIcon = function(el, name, preserveLabel=false) {
   } catch(e) {}
 })();
 </script>
+<style id="acadex-mobile-builder-progress">
+@media(max-width:600px){
+  body[data-app-view="create"] .topbar-heading{gap:10px;min-width:0;overflow:hidden}
+  body[data-app-view="create"] .topbar-heading>div:first-child{flex:0 0 auto;min-width:0}
+  body[data-app-view="create"] .topbar-heading .topbar-title{font-size:.9rem}
+  body[data-app-view="create"] .exam-builder-progress{
+    display:flex!important;
+    flex:1 1 auto!important;
+    min-width:0!important;
+    max-width:none!important;
+    overflow-x:auto!important;
+    overflow-y:hidden!important;
+    gap:5px!important;
+    padding:2px 0!important;
+    scrollbar-width:none;
+    -webkit-overflow-scrolling:touch;
+  }
+  body[data-app-view="create"] .exam-builder-progress::-webkit-scrollbar{display:none}
+  body[data-app-view="create"] .exam-progress-step{gap:0!important;flex:0 0 auto!important}
+  body[data-app-view="create"] .exam-progress-step b{display:none!important}
+  body[data-app-view="create"] .exam-progress-step span{width:22px!important;height:22px!important;min-width:22px!important}
+  body[data-app-view="create"] .exam-builder-progress>i{width:16px!important;flex:0 0 16px!important}
+  body[data-app-view="create"] .generation-state{min-height:300px;padding:28px 14px}
+}
+</style>
 </body></html>
 
 
