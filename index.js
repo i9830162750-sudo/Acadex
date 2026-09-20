@@ -573,7 +573,7 @@ app.post('/api/exam/:id/session', async(req, res) => {
     const password=typeof body.password === 'string'?body.password:'';
 
     if(token){
-      const {rows}=await pool.query(`SELECT token,exam_id,student_id,student_name,device_id,started_at,end_at,finished_at FROM exam_sessions WHERE token=$1 AND exam_id=$2`,[token,exam.id]);
+      const {rows}=await pool.query(`SELECT token,exam_id,student_id,student_name,device_id,started_at,end_at,finished_at FROM exam_sessions WHERE token=$1 AND exam_id=$2`,[finishToken,exam.id]);
       const s=rows[0];
       if(s){
         if(s.student_user_id && s.student_user_id !== authUser.id) return res.status(403).json({error:'This exam attempt belongs to another student account.'});
@@ -602,9 +602,9 @@ app.post('/api/exam/:id/session', async(req, res) => {
     }
     if(completedAttempts>0) return res.status(409).json({error:'You have already completed this exam.'});
 
-    const token=typeof req.body?.sessionToken === 'string'?req.body.sessionToken.trim():'';
-    if(!token) return res.status(400).json({error:'sessionToken is required'});
-    const existing=await pool.query(`SELECT id,public_result_token,score,total,percentage,answers_json,results_json,submitted_at FROM exam_submissions WHERE session_token=$1 AND exam_id=$2`,[token,exam.id]);
+    const finishToken=typeof req.body?.sessionToken === 'string'?req.body.sessionToken.trim():'';
+    if(!finishToken) return res.status(400).json({error:'sessionToken is required'});
+    const existing=await pool.query(`SELECT id,public_result_token,score,total,percentage,answers_json,results_json,submitted_at FROM exam_submissions WHERE session_token=$1 AND exam_id=$2`,[finishToken,exam.id]);
     if(existing.rows[0]){
       const s=existing.rows[0];
       return res.json({submissionId:s.id, publicResultToken:s.public_result_token||null, publicResultUrl:s.public_result_token?((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(s.public_result_token)}`):null, score:s.score, total:s.total, percentage:Number(s.percentage), answers:s.answers_json, results:s.results_json, submittedAt:Number(s.submitted_at)});
@@ -620,7 +620,7 @@ app.post('/api/exam/:id/session', async(req, res) => {
     const submissionId='sub_'+crypto.randomBytes(12).toString('hex');
     const publicResultToken=makeToken();
     await pool.query(`INSERT INTO exam_submissions(id,exam_id,session_token,student_id,student_name,answers_json,results_json,score,total,percentage,submitted_at,student_user_id,public_result_token) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,[submissionId,exam.id,token,session.student_id,session.student_name,JSON.stringify(answers),JSON.stringify(graded.results),graded.score,graded.total,graded.percentage,submittedAt,session.student_user_id||null,publicResultToken]);
-    await pool.query(`UPDATE exam_sessions SET finished_at=$1 WHERE token=$2`,[submittedAt,token]);
+    await pool.query(`UPDATE exam_sessions SET finished_at=$1 WHERE token=$2`,[submittedAt,finishToken]);
     res.json({submissionId, ...graded, answers, submittedAt});
   }catch(error){console.error('Finish exam error:', error);res.status(500).json({error:'Failed to submit exam'});}
 });
