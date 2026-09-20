@@ -921,7 +921,6 @@ body.student-role .student-only-nav{display:flex!important;}
     </div>
 
     <div class="sidebar-footer">
-      <button class="sidebar-settings-btn" type="button" data-app-view="settings" title="Settings"><span class="app-nav-icon">⚙</span><span>Settings</span></button>
       <div class="server-pill" id="serverStatus">
         <span class="dot"></span>
         <span id="serverStatusText">Checking exam server…</span>
@@ -1171,7 +1170,6 @@ body.student-role .student-only-nav{display:flex!important;}
   <button type="button" data-app-view="workspace"><span class="mobile-nav-icon">▦</span>Exams</button>
   <button type="button" data-app-view="students" class="teacher-only-mobile"><span class="mobile-nav-icon">♙</span>Students</button>
   <button type="button" data-app-view="teachers" class="student-only-mobile"><span class="mobile-nav-icon">♙</span>Teachers</button>
-  <button type="button" data-app-view="settings"><span class="mobile-nav-icon">⚙</span>Settings</button>
 </nav>
   </div>
 </div>
@@ -1273,71 +1271,6 @@ body.student-role .student-only-nav{display:flex!important;}
       <button type="button" class="detail-drawer-close" id="studentResultClose" aria-label="Close result">×</button>
     </div>
     <div class="detail-drawer-body" id="studentResultContent"></div>
-  </section>
-</div>
-<div class="settings-overlay" id="settingsOverlay" aria-hidden="true">
-  <section class="settings-page" aria-label="Settings workspace">
-    <aside class="settings-sidebar">
-      <div class="settings-title">Settings</div>
-      <div class="settings-subtitle">Manage your Acadex workspace</div>
-      <button class="settings-category active" data-settings-section="theme"><span>Appearance</span><small>Theme and display</small></button>
-      <button class="settings-category" data-settings-section="account"><span>Account</span><small>Profile and role</small></button>
-      <button class="settings-category" data-settings-section="password"><span>Security</span><small>Password</small></button>
-      <button class="settings-category" data-settings-section="privacy"><span>Privacy</span><small>Local data</small></button>
-      <button class="settings-category" data-settings-section="about"><span>About</span><small>Acadex information</small></button>
-      <button class="settings-close" id="settingsClose" type="button">Back to workspace</button>
-    </aside>
-    <div class="settings-content">
-      <div class="settings-mobile-head">
-        <div><div class="settings-kicker">Workspace</div><h1>Settings</h1></div>
-        <button class="settings-mobile-back" id="settingsMobileBack" type="button">Back</button>
-      </div>
-
-      <div class="settings-section active" data-settings-panel="theme">
-        <h2>Appearance</h2><p>Choose how Acadex should appear on this device.</p>
-        <div class="settings-card">
-          <div class="settings-row-copy"><strong>Theme</strong><span>Light, dark, or follow your system preference.</span></div>
-          <div class="theme-options"><button data-theme-choice="light">Light</button><button data-theme-choice="system">System</button><button data-theme-choice="dark">Dark</button></div>
-        </div>
-      </div>
-
-      <div class="settings-section" data-settings-panel="account">
-        <h2>Account</h2><p>Your current Acadex account information.</p>
-        <div class="settings-info" id="settingsAccountInfo">Not signed in.</div>
-      </div>
-
-      <div class="settings-section" data-settings-panel="password">
-        <h2>Security</h2><p>Update the password used to sign in to Acadex.</p>
-        <div class="settings-card">
-          <label class="settings-field-label" for="settingsNewPassword">New password</label>
-          <input class="text-input" id="settingsNewPassword" type="password" placeholder="At least 6 characters">
-          <button class="settings-save-btn" id="settingsPasswordBtn">Change password</button>
-          <div class="settings-note" id="settingsPasswordNote"></div>
-        </div>
-      </div>
-
-      <div class="settings-section" data-settings-panel="privacy">
-        <h2>Privacy</h2><p>Control information stored locally by Acadex on this device.</p>
-        <div class="settings-info settings-info-list">
-          <div><strong>Saved account</strong><span>Your signed-in account/session can remain on this device for faster sign-in.</span></div>
-          <div><strong>Cached data</strong><span>Temporary interface data may be kept locally while you use Acadex.</span></div>
-          <div><strong>Sign out</strong><span>Signing out ends the current session. Saved account information may remain available for account switching.</span></div>
-        </div>
-      </div>
-
-      <div class="settings-section" data-settings-panel="about">
-        <h2>About Acadex</h2><p>Exam creation, management, and results in one workspace.</p>
-        <div class="settings-info settings-info-list">
-          <div><strong>Application</strong><span>Acadex Exam Platform</span></div>
-          <div><strong>Version</strong><span>Current build</span></div>
-          <div><strong>Help</strong><span>Use the workspace navigation to manage exams, students, results, and your account.</span></div>
-        </div>
-      </div>
-
-      <div class="settings-mobile-signout">
-        <button class="settings-signout" id="settingsSignout" type="button">Sign out</button>
-      </div>
-    </div>
   </section>
 </div>
 <div class="folder-overlay" id="folderOverlay" aria-hidden="true"><div class="folder-dialog"><button class="dialog-close" id="folderClose">×</button><h3>New folder</h3><p>Give this folder a name.</p><input class="text-input" id="folderNameInput" maxlength="60" placeholder="e.g. Mathematics"><div class="dialog-actions"><button class="btn btn-ghost" id="folderCancel">Cancel</button><button class="btn" id="folderCreate">Create folder</button></div></div></div>
@@ -1643,7 +1576,6 @@ body.student-role .student-only-nav{display:flex!important;}
     /* Close transient UI first. */
     closeAccounts();
     closeAccountMenu();
-    closeSettings();
 
     /* Normalize navigation state. */
     document.body.dataset.appView=view;
@@ -1700,22 +1632,6 @@ body.student-role .student-only-nav{display:flex!important;}
       topbarTitle.textContent=editingExamId?'Edit exam':'Create exam';
       topbarSub.textContent=editingExamId?'Update and save this exam':'Build and publish a new exam';
       if(editingExamId) setTimeout(()=>{ generateBtn.querySelector('span').textContent='Save changes'; },0);
-      return;
-    }
-
-    if(view==='settings'){
-      if(!accountUser){ openAccounts(); return; }
-      const settingsPage=document.getElementById('settingsOverlay');
-      settingsPage?.classList.add('open');
-      settingsPage?.setAttribute('aria-hidden','false');
-      const u=accountUser;
-      const info=document.getElementById('settingsAccountInfo');
-      if(info){
-        info.innerHTML=`<strong>${escapeHtmlForGenerated(u.displayName||u.name||'Account')}</strong><br><span>${escapeHtmlForGenerated(u.email||'')}</span><br><span>${escapeHtmlForGenerated((u.role||'').toUpperCase())}${u.student_id?' · '+escapeHtmlForGenerated(u.student_id):''}</span>`;
-      }
-      topbarTitle.textContent='Settings';
-      topbarSub.textContent='Account, appearance, security, and privacy';
-      document.querySelector('.content-scroll').scrollTop=0;
       return;
     }
 
@@ -3634,13 +3550,6 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
   loadAccount();
 
   // ===== Acadex UI layer: settings, folder dialog, import review, contextual actions =====
-  function openSettings(){
-    const o=document.getElementById('settingsOverlay'); if(!o) return;
-    o.classList.add('open'); o.setAttribute('aria-hidden','false');
-    const u=accountUser;
-    document.getElementById('settingsAccountInfo').innerHTML=u ? `<strong>${escapeHtmlForGenerated(u.displayName||u.name||'Account')}</strong><br><span>${escapeHtmlForGenerated(u.email||'')}</span><br><span>${escapeHtmlForGenerated((u.role||'').toUpperCase())}${u.student_id?' · '+escapeHtmlForGenerated(u.student_id):''}</span>` : 'Not signed in.';
-  }
-  function closeSettings(){ const o=document.getElementById('settingsOverlay'); if(o){o.classList.remove('open');o.setAttribute('aria-hidden','true');} }
   function openFolderDialog(){ const o=document.getElementById('folderOverlay'); if(o){o.classList.add('open');o.setAttribute('aria-hidden','false');setTimeout(()=>document.getElementById('folderNameInput')?.focus(),40);} }
   function closeFolderDialog(){ const o=document.getElementById('folderOverlay'); if(o){o.classList.remove('open');o.setAttribute('aria-hidden','true');document.getElementById('folderNameInput').value='';} }
   function openImportReview(){
@@ -3667,14 +3576,7 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
   }
   document.getElementById('examDeleteCancel')?.addEventListener('click',closeExamDelete);
   document.getElementById('examDeleteConfirm')?.addEventListener('click',()=>deleteTeacherExam(pendingDeleteExamId));
-  document.getElementById('examDeleteOverlay')?.addEventListener('click',e=>{if(e.target.id==='examDeleteOverlay')closeExamDelete()});
-
-  document.getElementById('settingsClose')?.addEventListener('click',()=>{if(typeof window.showAppView==='function')window.showAppView('home');});
-  document.getElementById('settingsMobileBack')?.addEventListener('click',()=>{if(typeof window.showAppView==='function')window.showAppView('home');});
-  
-  document.querySelectorAll('.settings-category').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.settings-category').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.settings-section').forEach(x=>x.classList.toggle('active',x.dataset.settingsPanel===b.dataset.settingsSection));}));
-  document.querySelectorAll('[data-theme-choice]').forEach(b=>b.addEventListener('click',()=>applyTheme(b.dataset.themeChoice)));
-  document.getElementById('settingsSignout')?.addEventListener('click',()=>document.getElementById('accountLogout')?.click());
+  document.getElementById('examDeleteOverlay')?.addEventListener('click',e=>{if(e.target.id==='examDeleteOverlay')closeExamDelete()});});
   document.getElementById('folderClose')?.addEventListener('click',closeFolderDialog);
   document.getElementById('folderCancel')?.addEventListener('click',closeFolderDialog);
   document.getElementById('folderCreate')?.addEventListener('click',async()=>{await submitNewFolder();closeFolderDialog();});
@@ -3941,13 +3843,13 @@ window.acadexSetIcon = function(el, name, preserveLabel=false) {
 <script id="acadex-mobile-nav-final-script">
 (function(){
   function getNav(){return document.querySelector('.mobile-nav');}
-  const iconNames={home:'Home',workspace:'Exams',students:'Students',teachers:'Teachers',settings:'Settings'};
+  const iconNames={home:'Home',workspace:'Exams',students:'Students',teachers:'Teachers'};
   let lastRole='';
   function build(){
     const nav=getNav(); if(!nav || typeof window.acadexIcon!=='function') return;
     const student=document.body.classList.contains('student-role');
     const role=student?'student':'teacher';
-    const items=student?[['home','Home'],['workspace','Results'],['teachers','Teachers'],['settings','Settings']]:[['home','Home'],['workspace','Exams'],['students','Students'],['settings','Settings']];
+    const items=student?[['home','Home'],['workspace','Results'],['teachers','Teachers']]:[['home','Home'],['workspace','Exams'],['students','Students']];
     nav.innerHTML=items.map(([view,label])=>'<button type="button" data-app-view="'+view+'" aria-label="'+label+'"><span class="mobile-nav-icon">'+window.acadexIcon(view==='workspace'?(student?'Results':'Exams'):iconNames[view])+'</span><span class="mobile-nav-label">'+label+'</span></button>').join('');
     lastRole=role; sync();
   }
@@ -4059,5 +3961,35 @@ window.acadexSetIcon = function(el, name, preserveLabel=false) {
     box-sizing:border-box!important;
     z-index:auto!important;
   }
+}
+
+/* ===== Responsive sizing / no-horizontal-scroll layer ===== */
+html,body{max-width:100%;min-width:0;overflow-x:hidden;}
+img,svg,video,canvas{max-width:100%;height:auto;}
+button,input,select,textarea{max-width:100%;font:inherit;}
+.main,.content-scroll,.content-inner,.workspace-panel,.panel,.home-wrap{min-width:0;width:100%;}
+.content-scroll{overflow-x:hidden;}
+.content-inner{overflow-x:hidden;}
+.home-grid,.home-stat-grid,.dash-view,.option-grid,.exam-type-toggle{grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));}
+.dash-view.grid-view{grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));}
+.question-card,.exam-dash-card,.dash-card,.attempt-card,.student-result-card,.home-card,.home-stat,.home-list-item{min-width:0;overflow-wrap:anywhere;}
+.question-head,.topbar,.home-hero,.home-context,.account-menu-user,.file-preview{min-width:0;}
+.question-head>*:not(.question-delete),.file-info,.home-context>*{min-width:0;max-width:100%;}
+.file-name,.account-menu-user span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.text-input,.question-text,select,textarea{width:100%;min-width:0;}
+@media(max-width:900px){
+  .content-scroll{padding-left:clamp(14px,4vw,24px)!important;padding-right:clamp(14px,4vw,24px)!important;}
+  .topbar{padding-left:clamp(12px,4vw,24px)!important;padding-right:clamp(12px,4vw,24px)!important;}
+  .dash-view.grid-view{grid-template-columns:1fr;}
+}
+@media(max-width:600px){
+  .home-stat-grid,.exam-type-toggle{grid-template-columns:1fr;}
+  .home-grid{grid-template-columns:1fr;}
+  .question-head{flex-wrap:wrap;}
+  .question-head .question-type{flex:1 1 180px;}
+  .dialog-actions,.template-toolbar,.template-import-row{flex-wrap:wrap;}
+}
+@media(min-width:601px) and (max-width:1100px){
+  .home-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));}
 }
 </style>
