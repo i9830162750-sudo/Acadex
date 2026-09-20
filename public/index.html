@@ -1280,6 +1280,7 @@ body.student-role .student-only-nav{display:flex!important;}
               <div id="settingsChangePasswordWrap" style="display:none">
                 <div style="margin-bottom:10px;font:700 .78rem Inter,sans-serif;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.08em">Change Password</div>
                 <form id="settingsPwForm" autocomplete="on" onsubmit="return false">
+                  <input type="text" name="username" autocomplete="username" style="display:none" aria-hidden="true">
                   <input id="settingsCurrentPw" type="password" placeholder="Current password" class="account-input" autocomplete="current-password" style="margin-bottom:8px">
                   <input id="settingsNewPw" type="password" placeholder="New password (min 6 chars)" class="account-input" autocomplete="new-password" style="margin-bottom:8px">
                   <input id="settingsNewPw2" type="password" placeholder="Confirm new password" class="account-input" autocomplete="new-password" style="margin-bottom:12px">
@@ -1533,12 +1534,14 @@ body.student-role .student-only-nav{display:flex!important;}
       <p class="account-muted">Sign in to save exams, students, attempts and results to the server.</p>
       <div class="account-tabs"><button class="account-tab active" data-account-mode="login">Log in</button><button class="account-tab" data-account-mode="register">Create account</button></div>
       <div class="account-role"><button class="role-btn active" data-role="teacher">👨‍🏫 Teacher</button><button class="role-btn" data-role="student">🎓 Student</button></div>
+      <form id="accountLoginForm" autocomplete="on" onsubmit="return false">
       <input class="account-input" id="accountName" placeholder="Full name" autocomplete="name" style="display:none">
       <input class="account-input" id="accountStudentId" placeholder="Student ID" autocomplete="off" style="display:none">
-      <input class="account-input" id="accountEmail" type="email" placeholder="Email" autocomplete="email">
+      <input class="account-input" id="accountEmail" type="email" placeholder="Email" autocomplete="username">
       <div class="password-wrap"><input class="account-input" id="accountPassword" type="password" placeholder="Password (6+ characters)" autocomplete="current-password"><button class="password-toggle" id="accountPasswordToggle" type="button" aria-label="Show password" title="Show password">👁</button></div>
-      <button class="account-primary" id="accountSubmit" type="button">Log in</button>
+      <button class="account-primary" id="accountSubmit" type="submit">Log in</button>
       <div class="account-error" id="accountError"></div>
+      </form>
     </div>
     <div id="accountSwitcherView" style="display:none">
       <div class="account-brand">ACADEX</div>
@@ -3883,6 +3886,7 @@ $('start').onclick=start;$('submit').onclick=()=>submitExam(false);$('plus').onc
     accountPasswordToggle.title=showing?'Show password':'Hide password';
   });
   accountSubmit?.addEventListener('click',async()=>{
+  document.getElementById('accountLoginForm')?.addEventListener('submit',e=>{e.preventDefault();accountSubmit?.click();});
     accountError.textContent='';
     const email=accountEmailInput.value.trim().toLowerCase();
     const password=accountPasswordInput.value;
@@ -4474,6 +4478,7 @@ button,input,select,textarea{max-width:100%;font:inherit;}
   .home-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));}
 }
 </style>
+
 
 
 
