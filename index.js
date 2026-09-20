@@ -966,8 +966,8 @@ app.get('/exam/:id', async(req, res) => {
 #app.pdf-mode{position:fixed;inset:0;min-height:100dvh;height:100dvh;padding:0;overflow:hidden;background:#f2f1ef}
 #app.pdf-mode .top{position:fixed;top:14px;left:50%;z-index:20;width:min(900px,calc(100% - 28px));margin:0;transform:translateX(-50%);padding:11px 14px;background:rgba(255,255,255,.84);border:1px solid rgba(0,0,0,.1);border-radius:16px;box-shadow:0 12px 35px rgba(0,0,0,.14);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);transition:opacity .35s ease,transform .35s ease,filter .35s ease}
 #app.pdf-mode .paper{width:100%;max-width:none;height:100dvh;margin:0;padding:88px 18px 60px;overflow-y:auto;overscroll-behavior:contain;border-radius:0;box-shadow:none;background:#f2f1ef}
-#app.pdf-mode #paper{overflow-x:auto}
-#app.pdf-mode #paper canvas{display:block;width:auto!important;max-width:none!important;height:auto!important;margin:0 auto 22px;touch-action:pan-y}
+#app.pdf-mode #paper{overflow-x:auto;overflow-y:auto;touch-action:pan-x pan-y}
+#app.pdf-mode #paper canvas{display:block;width:auto!important;max-width:none!important;height:auto!important;margin:0 auto 22px;touch-action:pan-x pan-y}
 #app.pdf-mode.pdf-reading .top{opacity:0;transform:translate(-50%,-18px);pointer-events:none}
 #app.pdf-mode.pdf-reading{background:#111}
 #app.pdf-mode.pdf-reading .paper{background:#111}
@@ -1192,18 +1192,18 @@ async function renderPDF(dataUrl){
       e.touches[0].clientY-e.touches[1].clientY
     );
     pinchTargetScale=Math.min(3,Math.max(.7,pinchBaseScale*(dist/pinchStart)));
-    if(!pinchFrame){
-      pinchFrame=requestAnimationFrame(()=>{
-        pinchFrame=0;
-        setZoom(pinchTargetScale,true);
-      });
-    }
   },{passive:false});
 
   paper.addEventListener('touchend',e=>{
-    if(e.touches.length<2)pinchStart=0;
+    if(e.touches.length<2&&pinchStart){
+      pinchStart=0;
+      if(Math.abs(pinchTargetScale-scale)>0.01)setZoom(pinchTargetScale,true);
+    }
   },{passive:true});
-  paper.addEventListener('touchcancel',()=>{pinchStart=0},{passive:true});
+  paper.addEventListener('touchcancel',()=>{
+    if(pinchStart && Math.abs(pinchTargetScale-scale)>0.01)setZoom(pinchTargetScale,true);
+    pinchStart=0;
+  },{passive:true});
 
   await renderPages(false);
 }
