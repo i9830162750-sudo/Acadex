@@ -545,10 +545,67 @@ app.delete('/api/teacher/exams/:id', async(req,res)=>{
     res.status(500).json({error:'Could not delete exam.'});
   }
 });
-app.get('/api/teacher/exams/:id/results', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows:er}=await pool.query('SELECT id,title FROM exams WHERE id=$1 AND owner_user_id=$2',[req.params.id,u.id]);if(!er[0])return res.status(404).json({error:'Exam not found.'}); const examUrl=(process.env.PUBLIC_BASE_URL||req.protocol+'://'+req.get('host'))+'/exam/'+encodeURIComponent(req.params.id); const {rows}=await pool.query(`SELECT s.id,s.public_result_token,s.student_id,s.student_name,s.student_user_id,s.score,s.total,s.percentage,s.submitted_at,
-      ROW_NUMBER() OVER (PARTITION BY s.student_user_id ORDER BY s.submitted_at ASC)::int AS attempt_number,
-      COUNT(*) OVER (PARTITION BY s.student_user_id)::int AS attempt_count
-      FROM exam_submissions s JOIN exams e ON e.id=s.exam_id WHERE s.exam_id=$1 AND e.type='template' ORDER BY s.student_user_id, s.submitted_at DESC`,[req.params.id]); res.json({exam:{...er[0],url:examUrl},results:rows.map(x=>({...x,publicResultToken:x.public_result_token||null,publicResultUrl:x.public_result_token?((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(x.public_result_token)}`):null,percentage:Number(x.percentage),submittedAt:Number(x.submitted_at)}))});}catch(err){console.error(err);res.status(500).json({error:'Could not load results.'});} });
+app.get('/api/teacher/exams/:id/results', async(req,res)=>{
+  try{
+    const u=await requireRole(req,res,'teacher'); if(!u)return;
+    const {rows:er}=await pool.query('SELECT id,title,type FROM exams WHERE id=$1 AND owner_user_id=$2',[req.params.id,u.id]);
+    if(!er[0])return res.status(404).json({error:'Exam not found.'});
+    const exam=er[0];
+    const examUrl=(process.env.PUBLIC_BASE_URL||req.protocol+'://'+req.get('host'))+'/exam/'+encodeURIComponent(req.params.id);
+
+    if(exam.type==='pdf'){
+      /*
+        PDF exams are submission/attempt tracking only. There is deliberately
+        no score/result view for them. Include active sessions as attempts and
+        completed submissions as submitted attempts.
+      */
+      const {rows}=await pool.query(`
+        SELECT
+          es.token AS session_token,
+          es.student_id,
+          es.student_name,
+          es.student_user_id,
+          es.created_at,
+          es.finished_at,
+          s.id AS submission_id,
+          s.submitted_at
+        FROM exam_sessions es
+        LEFT JOIN exam_submissions s ON s.session_token=es.token AND s.exam_id=es.exam_id
+        WHERE es.exam_id=$1
+        ORDER BY COALESCE(s.submitted_at,es.created_at) DESC
+      `,[req.params.id]);
+      return res.json({
+        exam:{...exam,url:examUrl},
+        pdf:true,
+        results:rows.map(x=>({
+          id:x.submission_id||null,
+          sessionToken:x.session_token,
+          studentId:x.student_id,
+          studentName:x.student_name,
+          studentUserId:x.student_user_id||null,
+          submitted:Boolean(x.submission_id),
+          attemptedAt:Number(x.created_at),
+          submittedAt:x.submitted_at?Number(x.submitted_at):null
+        }))
+      });
+    }
+
+    const {rows}=await pool.query(`
+      SELECT s.id,s.public_result_token,s.student_id,s.student_name,s.student_user_id,s.score,s.total,s.percentage,s.submitted_at,
+        ROW_NUMBER() OVER (PARTITION BY s.student_user_id ORDER BY s.submitted_at ASC)::int AS attempt_number,
+        COUNT(*) OVER (PARTITION BY s.student_user_id)::int AS attempt_count
+      FROM exam_submissions s
+      JOIN exams e ON e.id=s.exam_id
+      WHERE s.exam_id=$1 AND e.type='template'
+      ORDER BY s.student_user_id, s.submitted_at DESC
+    `,[req.params.id]);
+    res.json({
+      exam:{...exam,url:examUrl},
+      pdf:false,
+      results:rows.map(x=>({...x,publicResultToken:x.public_result_token||null,publicResultUrl:x.public_result_token?((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(x.public_result_token)}`):null,percentage:Number(x.percentage),submittedAt:Number(x.submitted_at)}))
+    });
+  }catch(err){console.error(err);res.status(500).json({error:'Could not load results.'});}
+});
 app.get('/api/teacher/submissions/:id', async(req,res)=>{ try{const u=await requireRole(req,res,'teacher');if(!u)return; const {rows}=await pool.query(`SELECT s.id,s.public_result_token,s.student_id,s.student_name,s.score,s.total,s.percentage,s.answers_json,s.results_json,s.submitted_at,e.id AS exam_id,e.title FROM exam_submissions s JOIN exams e ON e.id=s.exam_id WHERE s.id=$1 AND e.owner_user_id=$2 AND e.type='template'`,[req.params.id,u.id]);if(!rows[0])return res.status(404).json({error:'Result not found.'});const r=rows[0];res.json({submissionId:r.id,publicResultToken:r.public_result_token||null,publicResultUrl:r.public_result_token?((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(r.public_result_token)}`):null,examId:r.exam_id,examTitle:r.title,studentId:r.student_id,studentName:r.student_name,score:r.score,total:r.total,percentage:Number(r.percentage),answers:r.answers_json,results:r.results_json,submittedAt:Number(r.submitted_at)});}catch(err){console.error(err);res.status(500).json({error:'Could not load result.'});} });
 app.get('/api/student/results', async(req,res)=>{ try{const u=await requireRole(req,res,'student');if(!u)return; const {rows}=await pool.query(`SELECT s.id,s.public_result_token,s.exam_id,e.title,s.score,s.total,s.percentage,s.submitted_at,
       ROW_NUMBER() OVER (PARTITION BY s.exam_id ORDER BY s.submitted_at ASC)::int AS attempt_number,
