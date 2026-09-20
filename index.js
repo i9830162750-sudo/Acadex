@@ -215,29 +215,11 @@ app.get('/', (req,res) => {
     location.replace('/install');
     return;
   }
-  var checking=false;
-  async function check(){
-    if(checking)return;
-    checking=true;
-    var controller=new AbortController();
-    var timeout=setTimeout(function(){controller.abort()},12000);
-    try{
-      var response=await fetch('/api/health?boot='+Date.now(),{
-        cache:'no-store',
-        headers:{'Cache-Control':'no-cache'},
-        signal:controller.signal
-      });
-      if(response.ok){
-        clearTimeout(timeout);
-        document.documentElement.setAttribute('data-acadex-boot-ready','1');
-        return;
-      }
-    }catch(_){}
-    clearTimeout(timeout);
-    checking=false;
-    setTimeout(check,5000);
-  }
-  check();
+
+  // Startup must work from the installed PWA cache. Do not ping Render here:
+  // the app shell can open offline, while individual server actions check
+  // connectivity only when they actually need the backend.
+  document.documentElement.setAttribute('data-acadex-boot-ready','1');
 })();
 </script>`;
     html = html.replace('</head>', '<meta name="acadex-ui" content="combined"><style id="acadex-ui-endpoint">html,body{min-width:0;}body{overflow-x:hidden;}</style>' + ACADEX_MOBILE_NAV_FIX + bootGate + '</head>');
