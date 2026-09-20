@@ -5,12 +5,59 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0e0f13">
 <title>Acadex</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;background:#0e0f13;color:#eef0f5;font-family:system-ui,sans-serif}
+body{display:flex;align-items:center;justify-content:center}
+.card{text-align:center;padding:24px}
+.icon{width:82px;height:82px;border-radius:20px;margin-bottom:18px}
+h1{margin:0 0 8px}
+p{color:#a2a6b5;font-size:14px;line-height:1.5}
+.spin{width:24px;height:24px;border:3px solid #292a35;border-top-color:#8b8df2;border-radius:50%;animation:s .8s linear infinite;margin:20px auto}
+@keyframes s{to{transform:rotate(360deg)}}
+</style>
 </head>
 <body>
+<main class="card">
+<img class="icon" src="/icons/acadex-icon.svg" alt="Acadex">
+<h1 id="title">Waking Acadex…</h1>
+<p id="status">Checking the server before opening the app…</p>
+<div class="spin"></div>
+</main>
 <script>
 (function(){
   var mobile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent||'');
-  location.replace(mobile?'/app/mobile':'/app/desktop');
+  var target=mobile?'/app/mobile':'/app/desktop';
+  var title=document.getElementById('title');
+  var status=document.getElementById('status');
+  var checking=false;
+
+  async function check(){
+    if(checking)return;
+    checking=true;
+    var controller=new AbortController();
+    var timeout=setTimeout(function(){controller.abort()},12000);
+    try{
+      var response=await fetch('/api/health?boot='+Date.now(),{
+        cache:'no-store',
+        headers:{'Cache-Control':'no-cache'},
+        signal:controller.signal
+      });
+      if(response.ok){
+        clearTimeout(timeout);
+        status.textContent='Server is ready. Opening Acadex…';
+        location.replace(target);
+        return;
+      }
+    }catch(_){}
+    clearTimeout(timeout);
+    checking=false;
+    title.textContent='Waking Acadex…';
+    status.textContent='The exam server is starting. Checking again in 5 seconds…';
+    setTimeout(check,5000);
+  }
+
+  check();
 })();
 </script>
 </body>
