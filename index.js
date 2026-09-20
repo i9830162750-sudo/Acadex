@@ -542,7 +542,7 @@ app.get('/api/teacher/students/:studentId', async(req,res)=>{
     const {rows}=await pool.query(`SELECT s.id,s.public_result_token,s.exam_id,e.title,s.score,s.total,s.percentage,s.submitted_at
       FROM exam_submissions s
       JOIN exams e ON e.id=s.exam_id
-      WHERE s.student_user_id=$1 AND e.owner_user_id=$2
+      WHERE s.student_user_id=$1 AND e.owner_user_id=$2 AND e.type='template'
       ORDER BY s.submitted_at DESC`,[studentId,u.id]);
     const results=rows.map(x=>({...x,score:Number(x.score),total:Number(x.total),percentage:Number(x.percentage),submittedAt:Number(x.submitted_at),publicResultUrl:x.public_result_token?((process.env.PUBLIC_BASE_URL||`${req.protocol}://${req.get('host')}`)+`/result/${encodeURIComponent(x.public_result_token)}`):null}));
     const average=results.length ? Number((results.reduce((sum,x)=>sum+Number(x.percentage||0),0)/results.length).toFixed(2)) : 0;
@@ -562,7 +562,7 @@ app.get('/api/teacher/students/:studentId/results/:submissionId', async(req,res)
       FROM exam_submissions s
       JOIN exams e ON e.id=s.exam_id
       JOIN users u ON u.id=s.student_user_id
-      WHERE s.id=$1 AND s.student_user_id=$2 AND e.owner_user_id=$3`,[req.params.submissionId,req.params.studentId,u.id]);
+      WHERE s.id=$1 AND s.student_user_id=$2 AND e.owner_user_id=$3 AND e.type='template'`,[req.params.submissionId,req.params.studentId,u.id]);
     let r=rows[0];
     if(!r)return res.status(404).json({error:'Result not found.'});
     if(!r.public_result_token){
