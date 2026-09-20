@@ -585,12 +585,10 @@ app.post('/api/exam/:id/session', async(req, res) => {
           if(!s.finished_at) await pool.query(`UPDATE exam_sessions SET finished_at=$1 WHERE token=$2`,[now,s.token]);
           return res.status(410).json({error:'This exam attempt is already finished.', endAt:Number(s.end_at)});
         }
-        if(deviceId && s.device_id && s.device_id !== deviceId) return res.status(403).json({error:'This exam attempt belongs to another device.'});
         return res.json({sessionToken:s.token, studentId:s.student_id, studentName:s.student_name, deviceId:s.device_id, startedAt:Number(s.started_at), endAt:Number(s.end_at), ...publicExam(exam)});
       }
     }
 
-    if(!deviceId) return res.status(400).json({error:'Device ID is required.'});
     if(!studentId) return res.status(400).json({error:'Student ID is required.'});
     if(!studentName) return res.status(400).json({error:'Student name is required.'});
     if(studentId.length>100) return res.status(400).json({error:'Student ID is too long.'});
