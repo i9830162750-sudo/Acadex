@@ -1,4 +1,4 @@
-const CACHE = 'acadex-v-20260921-8';
+const CACHE = 'acadex-v-20260922-1';
 const STATIC_ASSETS = [
   '/boot.html',
   '/install',
@@ -47,6 +47,10 @@ self.addEventListener('fetch', event => {
   // The PWA server gate must be able to detect a Render cold start instead of
   // receiving a cached response from the service worker.
   if (url.pathname.startsWith('/api/') || url.pathname === '/ping') return;
+
+  // Never cache the legacy app entry URL: it is now a boot page, and the
+  // actual app lives at /main after the health check succeeds.
+  if (url.pathname === '/app/acadex-app-7f3c9e21') return;
 
   // Keep the local boot page available offline. It performs the server health
   // check itself and only navigates to the app after /ping succeeds.
