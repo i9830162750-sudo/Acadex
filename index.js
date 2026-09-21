@@ -349,6 +349,7 @@ async function initDatabase(){
     ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS student_name TEXT;
     ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS device_id TEXT;
     ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS student_user_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS progress_json JSONB NOT NULL DEFAULT '{}'::jsonb;
     ALTER TABLE exams ADD COLUMN IF NOT EXISTS owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL;
     ALTER TABLE exams ADD COLUMN IF NOT EXISTS pdf_object_key TEXT;
     ALTER TABLE exams ADD COLUMN IF NOT EXISTS content_object_key TEXT;
@@ -1014,7 +1015,7 @@ app.post('/api/exam/:id/session', async(req, res) => {
     // student account, so the student can move between devices.
     if(token){
       const {rows}=await pool.query(
-        `SELECT token,exam_id,student_id,student_name,device_id,student_user_id,started_at,end_at,finished_at
+        `SELECT token,exam_id,student_id,student_name,device_id,student_user_id,started_at,end_at,finished_at,progress_json
          FROM exam_sessions WHERE token=$1 AND exam_id=$2`,
         [token,exam.id]
       );
@@ -1040,6 +1041,7 @@ app.post('/api/exam/:id/session', async(req, res) => {
           deviceId:existing.device_id,
           startedAt:Number(existing.started_at),
           endAt:Number(existing.end_at),
+          progress:existing.progress_json||{},
           ...publicExam(exam),
           ...(exam.type==='pdf' ? {pdfUrl:'/api/exam/'+encodeURIComponent(exam.id)+'/pdf'} : {})
         });
@@ -1065,7 +1067,7 @@ app.post('/api/exam/:id/session', async(req, res) => {
     // between accounts, and the same device can legitimately be used by
     // different students taking the same exam.
     const activeResult=await pool.query(
-      `SELECT token,student_id,student_name,device_id,student_user_id,started_at,end_at,finished_at
+      `SELECT token,student_id,student_name,device_id,student_user_id,started_at,end_at,finished_at,progress_json
        FROM exam_sessions
        WHERE exam_id=$1 AND finished_at IS NULL AND student_user_id=$2
        ORDER BY created_at DESC LIMIT 1`,
@@ -1086,6 +1088,7 @@ app.post('/api/exam/:id/session', async(req, res) => {
         deviceId:active.device_id,
         startedAt:Number(active.started_at),
         endAt:Number(active.end_at),
+        progress:active.progress_json||{},
         ...publicExam(exam),
         ...(exam.type==='pdf' ? {pdfUrl:'/api/exam/'+encodeURIComponent(exam.id)+'/pdf'} : {})
       });
@@ -1096,9 +1099,9 @@ app.post('/api/exam/:id/session', async(req, res) => {
     const endAt=startedAt+Math.max(1000,Number(exam.duration_ms)||3600000);
 
     await pool.query(
-      `INSERT INTO exam_sessions(token,exam_id,started_at,end_at,created_at,finished_at,student_id,student_name,device_id,student_user_id)
-       VALUES($1,$2,$3,$4,$5,NULL,$6,$7,$8,$9)`,
-      [sessionToken,exam.id,startedAt,endAt,startedAt,studentId,studentName,deviceId,authUser.id]
+      `INSERT INTO exam_sessions(token,exam_id,started_at,end_at,created_at,finished_at,student_id,student_name,device_id,student_user_id,progress_json)
+       VALUES($1,$2,$3,$4,$5,NULL,$6,$7,$8,$9,$10)`,
+      [sessionToken,exam.id,startedAt,endAt,startedAt,studentId,studentName,deviceId,authUser.id,{}]
     );
 
     return res.json({
@@ -1108,6 +1111,7 @@ app.post('/api/exam/:id/session', async(req, res) => {
       deviceId,
       startedAt,
       endAt,
+      progress:{},
       ...publicExam(exam),
       ...(exam.type==='pdf' ? {pdfUrl:'/api/exam/'+encodeURIComponent(exam.id)+'/pdf'} : {})
     });
@@ -1117,10 +1121,59 @@ app.post('/api/exam/:id/session', async(req, res) => {
   }
 });
 
+app.post('/api/exam/:id/progress', async(req,res) => {
+  try{
+    const exam=await getExam(req.params.id,{loadContent:false});
+    if(!exam) return res.status(404).json({error:'Exam not found'});
+
+    const authUser=await getAuthUser(req);
+    if(!authUser || authUser.role!=='student'){
+      return res.status(401).json({error:'Student account login is required.'});
+    }
+
+    const token=typeof req.body?.sessionToken==='string'?req.body.sessionToken.trim():'';
+    if(!token) return res.status(400).json({error:'sessionToken is required'});
+
+    const result=await pool.query(
+      `SELECT token,student_user_id,end_at,finished_at
+       FROM exam_sessions WHERE token=$1 AND exam_id=$2`,
+      [token,exam.id]
+    );
+    const session=result.rows[0];
+    if(!session) return res.status(404).json({error:'Session not found'});
+    if(session.student_user_id && session.student_user_id!==authUser.id){
+      return res.status(403).json({error:'This exam attempt belongs to another student account.'});
+    }
+    if(session.finished_at) return res.status(409).json({error:'This attempt is already closed.'});
+    if(Date.now()>=Number(session.end_at)){
+      await pool.query('UPDATE exam_sessions SET finished_at=$1 WHERE token=$2',[Date.now(),session.token]);
+      return res.status(410).json({error:'This exam attempt has expired.'});
+    }
+
+    const progress=req.body?.progress && typeof req.body.progress==='object' ? req.body.progress : {};
+    const safeProgress={
+      answers:progress.answers && typeof progress.answers==='object' ? progress.answers : {},
+      currentQuestion:Number.isInteger(Number(progress.currentQuestion)) ? Math.max(0,Number(progress.currentQuestion)) : 0,
+      pdfPage:Number.isInteger(Number(progress.pdfPage)) ? Math.max(1,Number(progress.pdfPage)) : 1,
+      pdfScrollRatio:Number.isFinite(Number(progress.pdfScrollRatio)) ? Math.min(1,Math.max(0,Number(progress.pdfScrollRatio))) : 0
+    };
+
+    await pool.query(
+      'UPDATE exam_sessions SET progress_json=$1 WHERE token=$2',
+      [safeProgress,session.token]
+    );
+    return res.json({ok:true,progress:safeProgress});
+  }catch(error){
+    console.error('Save exam progress error:',error);
+    res.status(500).json({error:'Could not save exam progress'});
+  }
+});
+
 app.post('/api/exam/:id/finish', async(req,res) => {
   try{
-    const exam=await getExam(req.params.id);
+    const exam=await getExam(req.params.id,{loadContent:false});
     if(!exam) return res.status(404).json({error:'Exam not found'});
+    if(exam.type==='template') await hydrateExamContent(exam);
 
     const authUser=await getAuthUser(req);
     if(!authUser || authUser.role!=='student'){
