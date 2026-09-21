@@ -1,5 +1,5 @@
 const express = require('express');
-const ACADEX_VERSION = 'v2.4.9';
+const ACADEX_VERSION = 'v2.4.10';
 const cors = require('cors');
 const crypto = require('crypto');
 const path = require('path');
@@ -1048,12 +1048,6 @@ app.post('/api/exam/:id/session', async(req, res) => {
       }
     }
 
-    if(!studentId) return res.status(400).json({error:'Student ID is required.'});
-    if(!studentName) return res.status(400).json({error:'Student name is required.'});
-    if(studentId.length>100) return res.status(400).json({error:'Student ID is too long.'});
-    if(studentName.length>150) return res.status(400).json({error:'Student name is too long.'});
-    if(password!==exam.student_password) return res.status(401).json({error:'Incorrect password'});
-
     const completedResult=await pool.query(
       'SELECT COUNT(*)::int AS count FROM exam_submissions WHERE exam_id=$1 AND student_user_id=$2',
       [exam.id,authUser.id]
@@ -1062,10 +1056,8 @@ app.post('/api/exam/:id/session', async(req, res) => {
       return res.status(409).json({error:'You have already completed this exam.'});
     }
 
-    // An active attempt belongs to the authenticated student account only.
-    // Do NOT match on student_id or device_id: class/student IDs can be shared
-    // between accounts, and the same device can legitimately be used by
-    // different students taking the same exam.
+    // Resume an existing active attempt before checking the exam password.
+    // The password is only required when creating a brand-new attempt.
     const activeResult=await pool.query(
       `SELECT token,student_id,student_name,device_id,student_user_id,started_at,end_at,finished_at,progress_json
        FROM exam_sessions
@@ -1075,12 +1067,6 @@ app.post('/api/exam/:id/session', async(req, res) => {
     );
     const active=activeResult.rows[0];
     if(active && Date.now()<Number(active.end_at)){
-      if(active.student_user_id && active.student_user_id!==authUser.id){
-        return res.status(409).json({error:'An active attempt for this exam is already associated with another student account.'});
-      }
-      if(!active.student_user_id){
-        await pool.query('UPDATE exam_sessions SET student_user_id=$1 WHERE token=$2',[authUser.id,active.token]);
-      }
       return res.json({
         sessionToken:active.token,
         studentId:active.student_id,
@@ -1089,10 +1075,18 @@ app.post('/api/exam/:id/session', async(req, res) => {
         startedAt:Number(active.started_at),
         endAt:Number(active.end_at),
         progress:active.progress_json||{},
+        resumed:true,
         ...publicExam(exam),
         ...(exam.type==='pdf' ? {pdfUrl:'/api/exam/'+encodeURIComponent(exam.id)+'/pdf'} : {})
       });
     }
+
+    if(!studentId) return res.status(400).json({error:'Student ID is required.'});
+    if(!studentName) return res.status(400).json({error:'Student name is required.'});
+    if(studentId.length>100) return res.status(400).json({error:'Student ID is too long.'});
+    if(studentName.length>150) return res.status(400).json({error:'Student name is too long.'});
+    if(!password) return res.status(401).json({error:'Exam password required.',code:'EXAM_PASSWORD_REQUIRED'});
+    if(password!==exam.student_password) return res.status(401).json({error:'Incorrect password'});
 
     const sessionToken=makeToken();
     const startedAt=Date.now();
@@ -1349,7 +1343,28 @@ app.get('/exam/:id', async(req, res) => {
 }
 @media(max-width:650px){#app{padding:12px}.paper{padding:26px 18px}.top h1{font-size:18px}.score{font-size:34px}.q-text{font-size:21px}.pager-nav{grid-template-columns:1fr 1fr}.pager-count{grid-column:1/-1;grid-row:1}.pager-nav .finish{width:100%}.pager-nav #prevBtn,.pager-nav #nextBtn,.pager-nav #submitBtn{justify-self:stretch}}
 </style></head><body>
-<div id="portal"><div class="card"><h1>${escapeHtml(exam.title)}</h1><p id="accountPrompt">Sign in with your student account, or create one if you don't have an account yet.</p><div id="accountTabs" style="display:flex;gap:8px;margin-bottom:12px"><button type="button" id="showLogin" class="finish" style="flex:1">Sign In</button><button type="button" id="showRegister" class="finish" style="flex:1;background:#2a2927;color:#fff">Create Account</button></div><form id="accountStep" autocomplete="on"><input id="studentEmail" type="email" placeholder="Student account email" autocomplete="username"><input id="studentPassword" type="password" placeholder="Account password" autocomplete="current-password"><input id="studentName" class="register-only hidden" type="text" placeholder="Full name" autocomplete="name"><input id="studentId" class="register-only hidden" type="text" placeholder="Student ID" autocomplete="off"><button id="studentLogin" type="submit">Sign in as Student</button></form><form id="examStep" class="hidden"><div id="studentWelcome" style="margin:10px 0 16px;color:#bbb"></div><input id="pwd" type="password" placeholder="Exam password" autocomplete="off"><button id="enter" type="submit">Enter Exam</button></form><div id="err" class="err"></div></div></div>
+<div id="portal"><div class="card"><h1>${escapeHtml(exam.title)}</h1><p id="accountPrompt">Sign in with your student account, or create one if you don't have an account yet.</p><div id="savedAccounts" class="hidden" style="margin:0 0 14px">
+  <div style="font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#8f8f8f;margin-bottom:8px">Saved student accounts</div>
+  <div id="savedAccountList" style="display:grid;gap:8px"></div>
+</div>
+<div id="accountTabs" style="display:flex;gap:8px;margin-bottom:12px"><button type="button" id="showLogin" class="finish" style="flex:1">Sign In</button><button type="button" id="showRegister" class="finish" style="flex:1;background:#2a2927;color:#fff">Create Account</button></div>
+<form id="accountStep" autocomplete="on">
+  <input id="studentEmail" type="email" placeholder="Student account email" autocomplete="username">
+  <input id="studentPassword" type="password" placeholder="Account password" autocomplete="current-password">
+  <input id="studentName" class="register-only hidden" type="text" placeholder="Full name" autocomplete="name">
+  <input id="studentId" class="register-only hidden" type="text" placeholder="Student ID" autocomplete="off">
+  <label style="display:flex;align-items:center;gap:8px;margin:10px 0 12px;font-size:13px;color:#aaa">
+    <input id="rememberStudent" type="checkbox" checked style="width:auto">
+    <span>Remember this account on this device</span>
+  </label>
+  <button id="studentLogin" type="submit">Sign in as Student</button>
+</form>
+<form id="examStep" class="hidden">
+  <div id="studentWelcome" style="margin:10px 0 16px;color:#bbb"></div>
+  <input id="pwd" type="password" placeholder="Exam password" autocomplete="off">
+  <button id="enter" type="submit">Enter Exam</button>
+</form>
+<div id="err" class="err"></div></div></div>
 <div id="app"><div class="top"><h1 id="examTitle"></h1><div style="display:flex;align-items:center;gap:10px"><button id="pdfSubmitBtn" class="finish hidden" type="button">Submit Exam</button><div id="timer" class="timer">--:--</div></div></div><div id="paper" class="paper"></div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
@@ -1368,13 +1383,13 @@ app.get('/exam/:id', async(req, res) => {
     }
     return id
   }
+  const ACCOUNT_STORE='accounts';
   function idb() {
     return new Promise((resolve, reject) => {
-      const r=indexedDB.open(DB_NAME, 1);
+      const r=indexedDB.open(DB_NAME, 2);
       r.onupgradeneeded=() => {
-        if(!r.result.objectStoreNames.contains(STORE))r.result.createObjectStore(STORE, {
-          keyPath:'examId'
-        })
+        if(!r.result.objectStoreNames.contains(STORE))r.result.createObjectStore(STORE, {keyPath:'examId'});
+        if(!r.result.objectStoreNames.contains(ACCOUNT_STORE))r.result.createObjectStore(ACCOUNT_STORE, {keyPath:'userId'});
       };
       r.onsuccess=() => resolve(r.result);
       r.onerror=() => reject(r.error)
@@ -1394,6 +1409,32 @@ app.get('/exam/:id', async(req, res) => {
       const r=db.transaction(STORE, 'readwrite').objectStore(STORE).put(v);
       r.onsuccess=resolve;
       r.onerror=() => reject(r.error)
+    })
+  }
+  async function savedAccounts() {
+    const db=await idb();
+    return new Promise((resolve, reject) => {
+      const r=db.transaction(ACCOUNT_STORE, 'readonly').objectStore(ACCOUNT_STORE).getAll();
+      r.onsuccess=()=>resolve(Array.isArray(r.result)?r.result:[]);
+      r.onerror=()=>reject(r.error)
+    })
+  }
+  async function saveAccount(user,token) {
+    if(!user?.id||!token)return;
+    const db=await idb();
+    return new Promise((resolve,reject)=>{
+      const r=db.transaction(ACCOUNT_STORE,'readwrite').objectStore(ACCOUNT_STORE).put({
+        userId:user.id,email:user.email||'',displayName:user.displayName||user.email||'Student',
+        studentId:user.studentId||'',token,savedAt:Date.now()
+      });
+      r.onsuccess=resolve;r.onerror=()=>reject(r.error)
+    })
+  }
+  async function removeAccount(userId) {
+    const db=await idb();
+    return new Promise((resolve,reject)=>{
+      const r=db.transaction(ACCOUNT_STORE,'readwrite').objectStore(ACCOUNT_STORE).delete(userId);
+      r.onsuccess=resolve;r.onerror=()=>reject(r.error)
     })
   }
   function fmt(ms) {
@@ -1463,25 +1504,54 @@ function applyServerProgress(d,fallback={}){
   };
 }
 
-async function startSession(){
+async function startSession(passwordOverride){
   const old=await saved(); const did=deviceId();
+  const password=typeof passwordOverride==='string'?passwordOverride:String($('pwd')?.value||'');
+
   if(old&&old.sessionToken&&!old.finishedAt){
     const resumeToken=studentAuthToken||old.studentAuthToken||'';
-    if(!resumeToken) throw new Error('Please sign in to your student account to resume this exam.');
-    studentAuthToken=resumeToken;
-    const r=await fetch(API+'/session', {method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentAuthToken}, body:JSON.stringify({sessionToken:old.sessionToken, deviceId:did, studentId:old.studentId, studentName:old.studentName})});
-    const d=await r.json().catch(()=>({}));
-    if(r.ok){
-      if(!d.sessionToken) throw new Error('The server did not return a session token. Please try again.');
-      applyServerProgress(d,old);
-      await save({...session,examId:EXAM_ID});
-      return d;
+    if(resumeToken){
+      studentAuthToken=resumeToken;
+      const r=await fetch(API+'/session',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentAuthToken},
+        body:JSON.stringify({sessionToken:old.sessionToken,deviceId:did,studentId:old.studentId,studentName:old.studentName})
+      });
+      const d=await r.json().catch(()=>({}));
+      if(r.ok){
+        if(!d.sessionToken)throw new Error('The server did not return a session token. Please try again.');
+        applyServerProgress(d,old);
+        await save({...session,examId:EXAM_ID});
+        return d;
+      }
+      if(r.status===410)await save({...old,finishedAt:Date.now(),examId:EXAM_ID});
     }
-    if(r.status === 410){throw new Error('This exam attempt is already finished.')}
   }
 
-  const body={deviceId:did, password:$('pwd').value};
-  const r=await fetch(API+'/session', {method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentAuthToken}, body:JSON.stringify(body)});
+  // Ask the server whether the authenticated account already has an active attempt.
+  // The backend checks this before the exam password, so active exams resume directly.
+  const resume=await fetch(API+'/session',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentAuthToken},
+    body:JSON.stringify({deviceId:did})
+  });
+  const resumeData=await resume.json().catch(()=>({}));
+  if(resume.ok){
+    if(!resumeData.sessionToken)throw new Error('The server did not return a session token. Please try again.');
+    applyServerProgress(resumeData,old||{});
+    await save({...session,examId:EXAM_ID});
+    return resumeData;
+  }
+  if(resume.status!==401||resumeData.code!=='EXAM_PASSWORD_REQUIRED'){
+    throw new Error(resumeData.error||'Could not check the existing exam session.');
+  }
+
+  if(!password)throw new Error('Enter the exam password.');
+  const r=await fetch(API+'/session',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentAuthToken},
+    body:JSON.stringify({deviceId:did,password})
+  });
   const d=await r.json().catch(()=>({}));
   if(!r.ok)throw new Error(d.error||'Could not start exam');
   if(!d.sessionToken)throw new Error('The server did not return a session token. Please try again.');
@@ -1489,6 +1559,7 @@ async function startSession(){
   await save({...session,examId:EXAM_ID});
   return d;
 }
+
 function renderTemplate(){
   const paper=$('paper'); const qs=examData.questions||[];
   let html='<div class="paper-title">'+esc(examData.title||EXAM_TITLE)+'</div><div id="questionPager">';
@@ -1862,11 +1933,133 @@ function setupPdfReadingMode(){
 // Leaving or refreshing the page does NOT submit an unfinished exam.
   // The student's active session and progress remain resumable until the timer expires
   // or the student explicitly presses Submit Exam.
-  let accountMode='login';function setAccountMode(mode){accountMode=mode;$('err').textContent='';const register=mode==='register';$('studentName').classList.toggle('hidden',!register);$('studentId').classList.toggle('hidden',!register);$('studentLogin').textContent=register?'Create Student Account':'Sign in as Student';$('showLogin').style.background=register?'#2a2927':'';$('showLogin').style.color=register?'#fff':'';$('showRegister').style.background=register?'':'#2a2927';$('showRegister').style.color=register?'':'#fff';$('accountPrompt').textContent=register?'Create your student account, then enter the exam password.':'Sign in with your student account, or create one if you don’t have an account yet.';}async function loginStudent(){const btn=$('studentLogin');$('err').textContent='';btn.disabled=true;btn.textContent=accountMode==='register'?'Creating…':'Signing in…';try{const email=$('studentEmail').value.trim().toLowerCase(),password=$('studentPassword').value;if(!email||!password)throw new Error('Enter your student account email and password.');let d;if(accountMode==='register'){const name=$('studentName').value.trim(),studentId=$('studentId').value.trim();if(!name)throw new Error('Enter your full name.');if(!studentId)throw new Error('Enter your Student ID.');const r=await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:'student',email,password,displayName:name,studentId})});d=await r.json();if(!r.ok)throw new Error(d.error||'Could not create account.');}else{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});d=await r.json();if(!r.ok)throw new Error(d.error||'Could not sign in.');}if(!d.user||d.user.role!=='student')throw new Error('This is not a student account.');studentAuthToken=d.token;const old=await saved();if(old&&old.sessionToken&&!old.finishedAt){session={...old,studentAuthToken};await save({...session,examId:EXAM_ID});}$('studentWelcome').textContent='Signed in as '+(d.user.displayName||d.user.email)+(d.user.studentId?' · Student ID '+d.user.studentId:'');$('accountStep').classList.add('hidden');$('accountTabs').classList.add('hidden');$('examStep').classList.remove('hidden');$('pwd').focus();}catch(e){$('err').textContent=e.message;btn.disabled=false;btn.textContent=accountMode==='register'?'Create Student Account':'Sign in as Student'}}
-async function enter(){const btn=$('enter');$('err').textContent='';btn.disabled=true;btn.textContent='Checking…';try{if(!studentAuthToken)throw new Error('Sign in to your student account first.');const d=await startSession();if(!d||!d.sessionToken||!session||!session.sessionToken)throw new Error('Could not establish an exam session. Please try again.');await showExam(d)}catch(e){console.error('Acadex exam start error:',e);$('err').textContent=e.message;btn.disabled=false;btn.textContent='Enter Exam'}}
-$('showLogin').addEventListener('click',()=>setAccountMode('login'));$('showRegister').addEventListener('click',()=>setAccountMode('register'));$('accountStep').addEventListener('submit', e => {e.preventDefault();loginStudent()});$('examStep').addEventListener('submit', e => {e.preventDefault();enter()});
-(async() => {try{const old=await saved();if(old&&old.studentAuthToken&&!old.finishedAt){studentAuthToken=old.studentAuthToken;$('studentEmail').value='';}}catch(_){} $('studentEmail').focus()})();
-</script></body></html>`);
+  let accountMode='login';
+let savedAccountBusy=false;
+function setAccountMode(mode){
+  accountMode=mode;$('err').textContent='';
+  const register=mode==='register';
+  $('studentName').classList.toggle('hidden',!register);
+  $('studentId').classList.toggle('hidden',!register);
+  $('rememberStudent').classList.toggle('hidden',register);
+  $('studentLogin').textContent=register?'Create Student Account':'Sign in as Student';
+  $('showLogin').style.background=register?'#2a2927':'';
+  $('showLogin').style.color=register?'#fff':'';
+  $('showRegister').style.background=register?'':'#2a2927';
+  $('showRegister').style.color=register?'':'#fff';
+  $('accountPrompt').textContent=register?'Create your student account, then enter the exam password.':'Sign in with your student account, or pick a saved account below.';
+}
+async function renderSavedAccounts(){
+  const wrap=$('savedAccounts'),list=$('savedAccountList');
+  if(!wrap||!list)return;
+  const accounts=await savedAccounts();
+  list.innerHTML='';
+  if(!accounts.length){wrap.classList.add('hidden');return;}
+  wrap.classList.remove('hidden');
+  for(const acc of accounts.sort((a,b)=>(b.savedAt||0)-(a.savedAt||0))){
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 11px;border:1px solid #30302e;border-radius:12px;background:#191918';
+    const pick=document.createElement('button');
+    pick.type='button';pick.className='finish';
+    pick.style.cssText='flex:1;text-align:left;background:transparent;border:0;padding:2px 0;color:#fff';
+    pick.innerHTML='<div style="font-weight:800">'+esc(acc.displayName||'Student')+'</div><div style="font-size:12px;color:#8f8f8f;margin-top:2px">'+esc(acc.email||'')+(acc.studentId?' · '+esc(acc.studentId):'')+'</div>';
+    const remove=document.createElement('button');
+    remove.type='button';remove.className='finish';remove.textContent='×';remove.title='Remove saved account';remove.style.cssText='width:34px;padding:8px 0';
+    pick.onclick=()=>useSavedAccount(acc);
+    remove.onclick=async()=>{await removeAccount(acc.userId);await renderSavedAccounts()};
+    row.append(pick,remove);list.appendChild(row);
+  }
+}
+async function useSavedAccount(acc){
+  if(savedAccountBusy)return;
+  savedAccountBusy=true;$('err').textContent='';
+  try{
+    studentAuthToken=acc.token;
+    const r=await fetch('/api/auth/me',{headers:{Authorization:'Bearer '+studentAuthToken}});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok||!d.user||d.user.role!=='student'){
+      await removeAccount(acc.userId);studentAuthToken='';await renderSavedAccounts();
+      throw new Error('That saved account has expired. Please sign in again.');
+    }
+    await saveAccount(d.user,studentAuthToken);
+    $('studentWelcome').textContent='Signed in as '+(d.user.displayName||d.user.email)+(d.user.studentId?' · Student ID '+d.user.studentId:'');
+    $('accountStep').classList.add('hidden');$('accountTabs').classList.add('hidden');$('examStep').classList.remove('hidden');
+    const resumed=await tryAutoResume();
+    if(!resumed)$('pwd').focus();
+  }catch(e){
+    $('err').textContent=e.message;
+    $('accountStep').classList.remove('hidden');$('accountTabs').classList.remove('hidden');$('examStep').classList.add('hidden');
+  }finally{savedAccountBusy=false}
+}
+async function tryAutoResume(){
+  try{
+    const d=await startSession('');
+    if(d&&d.sessionToken&&session&&session.sessionToken){await showExam(d);return true;}
+  }catch(e){
+    if(String(e.message||'')==='Enter the exam password.')return false;
+    $('err').textContent=e.message;
+  }
+  return false;
+}
+async function loginStudent(){
+  const btn=$('studentLogin');$('err').textContent='';btn.disabled=true;
+  btn.textContent=accountMode==='register'?'Creating…':'Signing in…';
+  try{
+    const email=$('studentEmail').value.trim().toLowerCase(),password=$('studentPassword').value;
+    if(!email||!password)throw new Error('Enter your student account email and password.');
+    let d;
+    if(accountMode==='register'){
+      const name=$('studentName').value.trim(),studentId=$('studentId').value.trim();
+      if(!name)throw new Error('Enter your full name.');
+      if(!studentId)throw new Error('Enter your Student ID.');
+      const r=await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:'student',email,password,displayName:name,studentId})});
+      d=await r.json();if(!r.ok)throw new Error(d.error||'Could not create account.');
+    }else{
+      const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+      d=await r.json();if(!r.ok)throw new Error(d.error||'Could not sign in.');
+    }
+    if(!d.user||d.user.role!=='student')throw new Error('This is not a student account.');
+    studentAuthToken=d.token;
+    if($('rememberStudent').checked||accountMode==='register')await saveAccount(d.user,studentAuthToken);
+    const old=await saved();
+    if(old&&old.sessionToken&&!old.finishedAt){session={...old,studentAuthToken};await save({...session,examId:EXAM_ID});}
+    await renderSavedAccounts();
+    $('studentWelcome').textContent='Signed in as '+(d.user.displayName||d.user.email)+(d.user.studentId?' · Student ID '+d.user.studentId:'');
+    $('accountStep').classList.add('hidden');$('accountTabs').classList.add('hidden');$('examStep').classList.remove('hidden');
+    const resumed=await tryAutoResume();
+    if(!resumed)$('pwd').focus();
+  }catch(e){$('err').textContent=e.message}
+  finally{btn.disabled=false;btn.textContent=accountMode==='register'?'Create Student Account':'Sign in as Student'}
+}
+async function enter(){
+  const btn=$('enter');$('err').textContent='';btn.disabled=true;btn.textContent='Checking…';
+  try{
+    if(!studentAuthToken)throw new Error('Sign in to your student account first.');
+    const d=await startSession();
+    if(!d||!d.sessionToken||!session||!session.sessionToken)throw new Error('Could not establish an exam session. Please try again.');
+    await showExam(d);
+  }catch(e){console.error('Acadex exam start error:',e);$('err').textContent=e.message}
+  finally{btn.disabled=false;btn.textContent='Enter Exam'}
+}
+$('showLogin').addEventListener('click',()=>setAccountMode('login'));
+$('showRegister').addEventListener('click',()=>setAccountMode('register'));
+$('accountStep').addEventListener('submit',e=>{e.preventDefault();loginStudent()});
+$('examStep').addEventListener('submit',e=>{e.preventDefault();enter()});
+(async()=>{
+  try{
+    await renderSavedAccounts();
+    const old=await saved();
+    if(old&&old.studentAuthToken&&!old.finishedAt){
+      studentAuthToken=old.studentAuthToken;
+      const r=await fetch('/api/auth/me',{headers:{Authorization:'Bearer '+studentAuthToken}});
+      const d=await r.json().catch(()=>({}));
+      if(r.ok&&d.user&&d.user.role==='student'){
+        await saveAccount(d.user,studentAuthToken);
+        $('studentWelcome').textContent='Signed in as '+(d.user.displayName||d.user.email)+(d.user.studentId?' · Student ID '+d.user.studentId:'');
+      }else studentAuthToken='';
+    }
+  }catch(_){}
+  $('studentEmail').focus();
+})();</script></body></html>`);
 });
 
 initDatabase().then(()=>{const PORT=process.env.PORT||3000;app.listen(PORT,()=>console.log(`Exam backend listening on port ${PORT}`));}).catch(error=>{console.error('Database initialization failed:',error);process.exit(1)});
