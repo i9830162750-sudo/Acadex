@@ -1551,6 +1551,64 @@ async function renderPDF(pdfUrl){
   await renderPage(1);
 
   paper.addEventListener('scroll',updatePdfReaderPosition,{passive:true});
+
+  // Seekable PDF scrollbar: grab the thumb and drag it to jump through the
+  // document, or click anywhere on the track to jump there.
+  const scrollTrack=thumb.parentElement;
+  let railDragging=false;
+  let railPointerId=null;
+  let railGrabOffset=0;
+
+  const seekFromTrackY=y=>{
+    const rect=scrollTrack.getBoundingClientRect();
+    const travel=Math.max(0,scrollTrack.clientHeight-thumb.offsetHeight);
+    if(travel<=0)return;
+    const clamped=Math.max(0,Math.min(travel,y-rect.top-railGrabOffset));
+    const ratio=clamped/travel;
+    const maxScroll=Math.max(0,paper.scrollHeight-paper.clientHeight);
+    paper.scrollTop=ratio*maxScroll;
+    updatePdfReaderPosition();
+  };
+
+  thumb.style.cursor='grab';
+  thumb.addEventListener('pointerdown',e=>{
+    if(e.pointerType==='mouse'&&e.button!==0)return;
+    e.preventDefault();
+    e.stopPropagation();
+    railDragging=true;
+    railPointerId=e.pointerId;
+    railGrabOffset=e.clientY-thumb.getBoundingClientRect().top;
+    thumb.style.cursor='grabbing';
+    try{thumb.setPointerCapture?.(e.pointerId)}catch(_){}
+  });
+
+  thumb.addEventListener('pointermove',e=>{
+    if(!railDragging||e.pointerId!==railPointerId)return;
+    e.preventDefault();
+    seekFromTrackY(e.clientY);
+  });
+
+  const finishRailDrag=e=>{
+    if(e.pointerId!==railPointerId)return;
+    railDragging=false;
+    railPointerId=null;
+    thumb.style.cursor='grab';
+    try{thumb.releasePointerCapture?.(e.pointerId)}catch(_){}
+  };
+  thumb.addEventListener('pointerup',finishRailDrag);
+  thumb.addEventListener('pointercancel',finishRailDrag);
+
+  scrollTrack.addEventListener('pointerdown',e=>{
+    if(e.target===thumb)return;
+    if(e.pointerType==='mouse'&&e.button!==0)return;
+    e.preventDefault();
+    const rect=scrollTrack.getBoundingClientRect();
+    const travel=Math.max(0,scrollTrack.clientHeight-thumb.offsetHeight);
+    if(travel<=0)return;
+    const y=Math.max(0,Math.min(scrollTrack.clientHeight,e.clientY-rect.top));
+    seekFromTrackY(y-thumb.offsetHeight/2);
+  });
+
   $('pdfZoomIn').onclick=()=>setZoom(zoomScale+.2);
   $('pdfZoomOut').onclick=()=>setZoom(zoomScale-.2);
   $('pdfZoomReset').onclick=()=>setZoom(1.35);
