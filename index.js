@@ -62,6 +62,7 @@ async function getB2ObjectSize(key){
 const app = express();
 app.use(cors());
 app.use(express.json( {
+app.use(express.static(path.join(__dirname, 'public')));
   limit: '25mb'
 }));
 const ACADEX_MOBILE_NAV_FIX = `
@@ -258,7 +259,6 @@ app.get('/app/acadex-app-7f3c9e21', (req,res) => {
 });
 
 
-app.use(express.static(path.join(__dirname, 'public')));
 function makeToken() {
   return crypto.randomBytes(32).toString('hex');
 }
