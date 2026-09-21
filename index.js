@@ -1401,8 +1401,16 @@ function startTimer(){clearInterval(timerId);timerId=setInterval(async() => {con
 async function showExam(d){examData=d;$('portal').style.display='none';$('app').style.display='block';$('app').classList.toggle('pdf-mode',d.type==='pdf');$('app').classList.remove('pdf-reading');document.querySelector('.pdf-reader-rail')?.remove();$('examTitle').textContent=d.title||EXAM_TITLE;$('pdfSubmitBtn').classList.toggle('hidden',d.type!=='pdf');if(d.type==='pdf'){$('pdfSubmitBtn').onclick=()=>submitExam(false);setupPdfReadingMode()}if(d.type === 'template')renderTemplate();else await renderPDF(d.pdfUrl);startTimer()}
 async function renderPDF(pdfUrl){
   const paper=$('paper'); paper.innerHTML='';
+  // Keep the page counter outside the transformed reader rail. The rail uses
+  // transform:translateY(-50%), which would otherwise make a position:fixed
+  // counter position relative to the rail instead of the viewport.
+  const count=document.createElement('div');
+  count.className='pdf-bottom-page-count';
+  count.id='pdfBottomPageCount';
+  count.textContent='1 / 1';
+  $('app').appendChild(count);
   const rail=document.createElement('div'); rail.className='pdf-reader-rail';
-  rail.innerHTML='<div class="pdf-bottom-page-count" id="pdfBottomPageCount">1 / 1</div><div class="pdf-scroll-track"><div class="pdf-scroll-thumb" id="pdfScrollThumb"></div></div><div class="pdf-zoom-controls"><button class="pdf-zoom-btn" id="pdfZoomIn" type="button" aria-label="Zoom in">+</button><button class="pdf-zoom-btn" id="pdfZoomOut" type="button" aria-label="Zoom out">−</button><button class="pdf-zoom-btn" id="pdfZoomReset" type="button" aria-label="Reset zoom">↺</button></div>';
+  rail.innerHTML='<div class="pdf-scroll-track"><div class="pdf-scroll-thumb" id="pdfScrollThumb"></div></div><div class="pdf-zoom-controls"><button class="pdf-zoom-btn" id="pdfZoomIn" type="button" aria-label="Zoom in">+</button><button class="pdf-zoom-btn" id="pdfZoomOut" type="button" aria-label="Zoom out">−</button><button class="pdf-zoom-btn" id="pdfZoomReset" type="button" aria-label="Reset zoom">↺</button></div>';
   $('app').appendChild(rail);
 
   if(!pdfUrl) throw new Error('PDF stream URL was not provided by the server.');
