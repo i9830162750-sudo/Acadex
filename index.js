@@ -1343,20 +1343,13 @@ app.get('/exam/:id', async(req, res) => {
 }
 @media(max-width:650px){#app{padding:12px}.paper{padding:26px 18px}.top h1{font-size:18px}.score{font-size:34px}.q-text{font-size:21px}.pager-nav{grid-template-columns:1fr 1fr}.pager-count{grid-column:1/-1;grid-row:1}.pager-nav .finish{width:100%}.pager-nav #prevBtn,.pager-nav #nextBtn,.pager-nav #submitBtn{justify-self:stretch}}
 </style></head><body>
-<div id="portal"><div class="card"><h1>${escapeHtml(exam.title)}</h1><p id="accountPrompt">Sign in with your student account, or create one if you don't have an account yet.</p><div id="savedAccounts" class="hidden" style="margin:0 0 14px">
-  <div style="font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#8f8f8f;margin-bottom:8px">Saved student accounts</div>
-  <div id="savedAccountList" style="display:grid;gap:8px"></div>
-</div>
+<div id="portal"><div class="card"><h1>${escapeHtml(exam.title)}</h1><p id="accountPrompt">Sign in once. Acadex will remember this student account on this device for future exams.</p>
 <div id="accountTabs" style="display:flex;gap:8px;margin-bottom:12px"><button type="button" id="showLogin" class="finish" style="flex:1">Sign In</button><button type="button" id="showRegister" class="finish" style="flex:1;background:#2a2927;color:#fff">Create Account</button></div>
 <form id="accountStep" autocomplete="on">
   <input id="studentEmail" type="email" placeholder="Student account email" autocomplete="username">
   <input id="studentPassword" type="password" placeholder="Account password" autocomplete="current-password">
   <input id="studentName" class="register-only hidden" type="text" placeholder="Full name" autocomplete="name">
   <input id="studentId" class="register-only hidden" type="text" placeholder="Student ID" autocomplete="off">
-  <label style="display:flex;align-items:center;gap:8px;margin:10px 0 12px;font-size:13px;color:#aaa">
-    <input id="rememberStudent" type="checkbox" checked style="width:auto">
-    <span>Remember this account on this device</span>
-  </label>
   <button id="studentLogin" type="submit">Sign in as Student</button>
 </form>
 <form id="examStep" class="hidden">
@@ -1364,8 +1357,7 @@ app.get('/exam/:id', async(req, res) => {
   <input id="pwd" type="password" placeholder="Exam password" autocomplete="off">
   <button id="enter" type="submit">Enter Exam</button>
 </form>
-<div id="err" class="err"></div></div></div>
-<div id="app"><div class="top"><h1 id="examTitle"></h1><div style="display:flex;align-items:center;gap:10px"><button id="pdfSubmitBtn" class="finish hidden" type="button">Submit Exam</button><div id="timer" class="timer">--:--</div></div></div><div id="paper" class="paper"></div></div>
+<div id="err" class="err"></div></div></div><div id="app"><div class="top"><h1 id="examTitle"></h1><div style="display:flex;align-items:center;gap:10px"><button id="pdfSubmitBtn" class="finish hidden" type="button">Submit Exam</button><div id="timer" class="timer">--:--</div></div></div><div id="paper" class="paper"></div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
   const EXAM_ID=${safeId};
@@ -1415,26 +1407,43 @@ app.get('/exam/:id', async(req, res) => {
     const db=await idb();
     return new Promise((resolve, reject) => {
       const r=db.transaction(ACCOUNT_STORE, 'readonly').objectStore(ACCOUNT_STORE).getAll();
-      r.onsuccess=()=>resolve(Array.isArray(r.result)?r.result:[]);
+      r.onsuccess=()=>{
+        const rows=Array.isArray(r.result)?r.result:[];
+        rows.sort((a,b)=>(b.savedAt||0)-(a.savedAt||0));
+        resolve(rows.slice(0,1));
+      };
       r.onerror=()=>reject(r.error)
     })
+  }
+  async function savedDeviceAccount() {
+    const rows=await savedAccounts();
+    return rows[0]||null;
   }
   async function saveAccount(user,token) {
     if(!user?.id||!token)return;
     const db=await idb();
     return new Promise((resolve,reject)=>{
-      const r=db.transaction(ACCOUNT_STORE,'readwrite').objectStore(ACCOUNT_STORE).put({
+      const tx=db.transaction(ACCOUNT_STORE,'readwrite');
+      const store=tx.objectStore(ACCOUNT_STORE);
+      store.clear();
+      store.put({
         userId:user.id,email:user.email||'',displayName:user.displayName||user.email||'Student',
         studentId:user.studentId||'',token,savedAt:Date.now()
       });
-      r.onsuccess=resolve;r.onerror=()=>reject(r.error)
+      tx.oncomplete=resolve;
+      tx.onerror=()=>reject(tx.error);
+      tx.onabort=()=>reject(tx.error||new Error('Could not save the device account.'));
     })
   }
   async function removeAccount(userId) {
     const db=await idb();
     return new Promise((resolve,reject)=>{
-      const r=db.transaction(ACCOUNT_STORE,'readwrite').objectStore(ACCOUNT_STORE).delete(userId);
-      r.onsuccess=resolve;r.onerror=()=>reject(r.error)
+      const tx=db.transaction(ACCOUNT_STORE,'readwrite');
+      const store=tx.objectStore(ACCOUNT_STORE);
+      if(userId)store.delete(userId);else store.clear();
+      tx.oncomplete=resolve;
+      tx.onerror=()=>reject(tx.error);
+      tx.onabort=()=>reject(tx.error||new Error('Could not clear the device account.'));
     })
   }
   function fmt(ms) {
@@ -1940,54 +1949,41 @@ function setAccountMode(mode){
   const register=mode==='register';
   $('studentName').classList.toggle('hidden',!register);
   $('studentId').classList.toggle('hidden',!register);
-  $('rememberStudent').classList.toggle('hidden',register);
   $('studentLogin').textContent=register?'Create Student Account':'Sign in as Student';
   $('showLogin').style.background=register?'#2a2927':'';
   $('showLogin').style.color=register?'#fff':'';
   $('showRegister').style.background=register?'':'#2a2927';
   $('showRegister').style.color=register?'':'#fff';
-  $('accountPrompt').textContent=register?'Create your student account, then enter the exam password.':'Sign in with your student account, or pick a saved account below.';
+  $('accountPrompt').textContent=register
+    ? 'Create your student account, then enter the exam password.'
+    : 'Sign in once. Acadex will remember this student account on this device for future exams.';
 }
-async function renderSavedAccounts(){
-  const wrap=$('savedAccounts'),list=$('savedAccountList');
-  if(!wrap||!list)return;
-  const accounts=await savedAccounts();
-  list.innerHTML='';
-  if(!accounts.length){wrap.classList.add('hidden');return;}
-  wrap.classList.remove('hidden');
-  for(const acc of accounts.sort((a,b)=>(b.savedAt||0)-(a.savedAt||0))){
-    const row=document.createElement('div');
-    row.style.cssText='display:flex;align-items:center;gap:8px;padding:10px 11px;border:1px solid #30302e;border-radius:12px;background:#191918';
-    const pick=document.createElement('button');
-    pick.type='button';pick.className='finish';
-    pick.style.cssText='flex:1;text-align:left;background:transparent;border:0;padding:2px 0;color:#fff';
-    pick.innerHTML='<div style="font-weight:800">'+esc(acc.displayName||'Student')+'</div><div style="font-size:12px;color:#8f8f8f;margin-top:2px">'+esc(acc.email||'')+(acc.studentId?' · '+esc(acc.studentId):'')+'</div>';
-    const remove=document.createElement('button');
-    remove.type='button';remove.className='finish';remove.textContent='×';remove.title='Remove saved account';remove.style.cssText='width:34px;padding:8px 0';
-    pick.onclick=()=>useSavedAccount(acc);
-    remove.onclick=async()=>{await removeAccount(acc.userId);await renderSavedAccounts()};
-    row.append(pick,remove);list.appendChild(row);
-  }
-}
-async function useSavedAccount(acc){
-  if(savedAccountBusy)return;
+async function useSavedDeviceAccount(){
+  if(savedAccountBusy)return false;
+  const acc=await savedDeviceAccount();
+  if(!acc?.token)return false;
   savedAccountBusy=true;$('err').textContent='';
   try{
     studentAuthToken=acc.token;
     const r=await fetch('/api/auth/me',{headers:{Authorization:'Bearer '+studentAuthToken}});
     const d=await r.json().catch(()=>({}));
     if(!r.ok||!d.user||d.user.role!=='student'){
-      await removeAccount(acc.userId);studentAuthToken='';await renderSavedAccounts();
-      throw new Error('That saved account has expired. Please sign in again.');
+      await removeAccount(acc.userId);
+      studentAuthToken='';
+      return false;
     }
     await saveAccount(d.user,studentAuthToken);
     $('studentWelcome').textContent='Signed in as '+(d.user.displayName||d.user.email)+(d.user.studentId?' · Student ID '+d.user.studentId:'');
-    $('accountStep').classList.add('hidden');$('accountTabs').classList.add('hidden');$('examStep').classList.remove('hidden');
+    $('accountStep').classList.add('hidden');
+    $('accountTabs').classList.add('hidden');
+    $('examStep').classList.remove('hidden');
     const resumed=await tryAutoResume();
     if(!resumed)$('pwd').focus();
+    return true;
   }catch(e){
-    $('err').textContent=e.message;
-    $('accountStep').classList.remove('hidden');$('accountTabs').classList.remove('hidden');$('examStep').classList.add('hidden');
+    console.error('[Acadex] Remembered student account restore failed:',e);
+    studentAuthToken='';
+    return false;
   }finally{savedAccountBusy=false}
 }
 async function tryAutoResume(){
@@ -2019,10 +2015,11 @@ async function loginStudent(){
     }
     if(!d.user||d.user.role!=='student')throw new Error('This is not a student account.');
     studentAuthToken=d.token;
-    if($('rememberStudent').checked||accountMode==='register')await saveAccount(d.user,studentAuthToken);
+    // Always remember exactly one account on this device. A new login replaces
+    // the previous remembered account instead of creating a second choice.
+    await saveAccount(d.user,studentAuthToken);
     const old=await saved();
     if(old&&old.sessionToken&&!old.finishedAt){session={...old,studentAuthToken};await save({...session,examId:EXAM_ID});}
-    await renderSavedAccounts();
     $('studentWelcome').textContent='Signed in as '+(d.user.displayName||d.user.email)+(d.user.studentId?' · Student ID '+d.user.studentId:'');
     $('accountStep').classList.add('hidden');$('accountTabs').classList.add('hidden');$('examStep').classList.remove('hidden');
     const resumed=await tryAutoResume();
@@ -2046,31 +2043,16 @@ $('accountStep').addEventListener('submit',e=>{e.preventDefault();loginStudent()
 $('examStep').addEventListener('submit',e=>{e.preventDefault();enter()});
 (async()=>{
   try{
-    await renderSavedAccounts();
-    const old=await saved();
-    if(old&&old.studentAuthToken&&!old.finishedAt){
-      studentAuthToken=old.studentAuthToken;
-      const r=await fetch('/api/auth/me',{headers:{Authorization:'Bearer '+studentAuthToken}});
-      const d=await r.json().catch(()=>({}));
-      if(r.ok&&d.user&&d.user.role==='student'){
-        await saveAccount(d.user,studentAuthToken);
-        $('studentWelcome').textContent='Signed in as '+(d.user.displayName||d.user.email)+(d.user.studentId?' · Student ID '+d.user.studentId:'');
-        $('accountStep').classList.add('hidden');
-        $('accountTabs').classList.add('hidden');
-        $('examStep').classList.remove('hidden');
-        // A refresh during an active exam resumes it automatically. The server
-        // keeps the original endAt, so the timer cannot be reset by reloading.
-        const resumed=await tryAutoResume();
-        if(!resumed)$('pwd').focus();
-      }else{
-        studentAuthToken='';
-      }
-    }
+    // Restore the one remembered student account for this device. This runs on
+    // every generated exam, so login is needed only once until the token expires
+    // or the browser's site data is cleared.
+    const restored=await useSavedDeviceAccount();
+    if(restored)return;
   }catch(e){
-    console.error('[Acadex] Saved student session restore failed:',e);
+    console.error('[Acadex] Saved student account restore failed:',e);
   }
   $('studentEmail').focus();
-})();</script></body></html>`);
+}})();</script></body></html>`);
 });
 
 initDatabase().then(()=>{const PORT=process.env.PORT||3000;app.listen(PORT,()=>console.log(`Exam backend listening on port ${PORT}`));}).catch(error=>{console.error('Database initialization failed:',error);process.exit(1)});
