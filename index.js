@@ -63,6 +63,11 @@ async function getB2ObjectSize(key){
 const app = express();
 app.use(cors());
 app.use(express.json({limit:'25mb'}));
+
+// The public base URL is the install entry point. Keep this route before
+// express.static() so public/index.html cannot win the / route.
+app.get('/', (req,res) => res.redirect(302, '/install'));
+
 app.use(express.static(path.join(__dirname, 'public')));
 const ACADEX_MOBILE_NAV_FIX = `
 <style id="acadex-mobile-nav-safe-area-fix">
