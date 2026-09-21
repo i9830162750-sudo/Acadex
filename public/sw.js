@@ -48,9 +48,25 @@ self.addEventListener('fetch', event => {
   // receiving a cached response from the service worker.
   if (url.pathname.startsWith('/api/') || url.pathname === '/ping') return;
 
-  // Never cache the legacy app entry URL: it is now a boot page, and the
-  // actual app lives at /main after the health check succeeds.
-  if (url.pathname === '/app/acadex-app-7f3c9e21') return;
+  // IMPORTANT: installed PWAs can keep an older start_url in their launch
+  // configuration. If that old app URL is launched while Render is asleep,
+  // do NOT send the navigation to Render first. Serve the already-cached boot
+  // page locally so the boot page can perform the /ping check itself.
+  if (url.pathname === '/app/acadex-app-7f3c9e21') {
+    event.respondWith(
+      caches.match('/boot.html').then(cached => {
+        if (cached) return cached;
+        return fetch('/boot.html').then(response => {
+          if (response && response.status === 200 && response.type !== 'opaque') {
+            const copy = response.clone();
+            caches.open(CACHE).then(c => c.put('/boot.html', copy));
+          }
+          return response;
+        });
+      })
+    );
+    return;
+  }
 
   // Keep the local boot page available offline. It performs the server health
   // check itself and only navigates to the app after /ping succeeds.
