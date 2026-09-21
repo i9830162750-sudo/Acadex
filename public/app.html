@@ -2291,6 +2291,18 @@ body.student-role .student-only-nav{display:flex!important;}
     setTimeout(() => { toast.className = 'toast'; }, duration);
   }
 
+  // Keep runtime failures visible in DevTools as well as the user-facing toast.
+  window.addEventListener('error', (event) => {
+    console.error('[Acadex] Uncaught runtime error:', event.error || event.message, event.filename ? {
+      filename: event.filename,
+      line: event.lineno,
+      column: event.colno
+    } : '');
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error('[Acadex] Unhandled promise rejection:', event.reason);
+  });
+
   /* ═══════════════════════════════════════════════════════════════
      QUESTION TEMPLATE BUILDER
   ═══════════════════════════════════════════════════════════════ */
@@ -2959,7 +2971,8 @@ Fill the blank template using the MCQ set and return only the completed template
               const totalMB = (file.size / (1024*1024)).toFixed(1);
               setUploadProgress(overallPct, 'Uploading PDF…', uploadedMB + ' MB of ' + totalMB + ' MB · part ' + (i+1) + ' of ' + totalParts);
             });
-            const etag = up.headers.get('ETag') || up.headers.get('etag') || '';
+            // XMLHttpRequest exposes response headers through getResponseHeader(), not Headers.get().
+            const etag = up.getResponseHeader('ETag') || up.getResponseHeader('etag') || '';
             parts.push({ PartNumber: i + 1, ETag: etag });
             uploaded += chunk.size;
             const pct = (uploaded / file.size) * 100;
@@ -3056,6 +3069,7 @@ Fill the blank template using the MCQ set and return only the completed template
       goToPanel(5);
       showToast('✅ Hosted exam created!', 'success', 3000);
     } catch (err) {
+      console.error('[Acadex] PDF exam generation failed:', err);
       if(err?.name === 'AbortError' && !generationTimedOut) return;
       goToPanel(3);
       if (generationTimedOut) {
@@ -3206,6 +3220,7 @@ Fill the blank template using the MCQ set and return only the completed template
       goToPanel(5);
       showToast('✅ Hosted template exam created!', 'success', 3000);
     } catch (err) {
+      console.error('[Acadex] Template exam generation failed:', err);
       if(err?.name === 'AbortError') return;
       goToPanel(3);
       if (err.message === 'PING_FAILED') {
