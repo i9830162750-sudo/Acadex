@@ -244,20 +244,10 @@ app.get('/install', (req,res) => {
   }
 });
 
-app.get('/', (req,res) => {
-  try {
-    const file = path.join(__dirname, 'public', 'pwa-loader.html');
-    res.set('Cache-Control','public, max-age=0, must-revalidate');
-    res.type('html').send(fs.readFileSync(file, 'utf8'));
-  } catch (_) {
-    res.status(500).send('Acadex is unavailable.');
-  }
-});
-
 
 app.get('/app/acadex-app-7f3c9e21', (req,res) => {
   try {
-    const file = path.join(__dirname, 'public', 'index.html');
+    const file = path.join(__dirname, 'public', 'app.html');
     let html = fs.readFileSync(file, 'utf8');
     html = html.replace('</head>', '<meta name="acadex-ui" content="combined"><style id="acadex-ui-endpoint">html,body{min-width:0;}body{overflow-x:hidden;}</style>' + ACADEX_MOBILE_NAV_FIX + '</head>');
     res.set('Cache-Control','no-store, no-cache, must-revalidate');
