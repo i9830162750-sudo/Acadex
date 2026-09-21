@@ -1376,6 +1376,8 @@ app.get('/exam/:id', async(req, res) => {
     return id
   }
   const ACCOUNT_STORE='accounts';
+  const ACCOUNT_STORAGE_KEY='acadex_student_account_v1';
+
   function idb() {
     return new Promise((resolve, reject) => {
       const r=indexedDB.open(DB_NAME, 2);
@@ -1387,6 +1389,30 @@ app.get('/exam/:id', async(req, res) => {
       r.onerror=() => reject(r.error)
     })
   }
+
+  function readLocalDeviceAccount(){
+    try{
+      const raw=localStorage.getItem(ACCOUNT_STORAGE_KEY);
+      if(!raw)return null;
+      const account=JSON.parse(raw);
+      return account&&account.token&&account.userId?account:null;
+    }catch(_){return null}
+  }
+
+  function writeLocalDeviceAccount(account){
+    try{
+      localStorage.setItem(ACCOUNT_STORAGE_KEY,JSON.stringify(account));
+      return true;
+    }catch(error){
+      console.warn('[Acadex] Could not persist the remembered student account in localStorage:',error);
+      return false;
+    }
+  }
+
+  function clearLocalDeviceAccount(){
+    try{localStorage.removeItem(ACCOUNT_STORAGE_KEY)}catch(_){}
+  }
+
   async function saved() {
     const db=await idb();
     return new Promise((resolve, reject) => {
@@ -1395,6 +1421,7 @@ app.get('/exam/:id', async(req, res) => {
       r.onerror=() => reject(r.error)
     })
   }
+
   async function save(v) {
     const db=await idb();
     return new Promise((resolve, reject) => {
@@ -1403,48 +1430,87 @@ app.get('/exam/:id', async(req, res) => {
       r.onerror=() => reject(r.error)
     })
   }
+
   async function savedAccounts() {
-    const db=await idb();
-    return new Promise((resolve, reject) => {
-      const r=db.transaction(ACCOUNT_STORE, 'readonly').objectStore(ACCOUNT_STORE).getAll();
-      r.onsuccess=()=>{
-        const rows=Array.isArray(r.result)?r.result:[];
-        rows.sort((a,b)=>(b.savedAt||0)-(a.savedAt||0));
-        resolve(rows.slice(0,1));
-      };
-      r.onerror=()=>reject(r.error)
-    })
+    let rows=[];
+    try{
+      const db=await idb();
+      rows=await new Promise((resolve,reject)=>{
+        const r=db.transaction(ACCOUNT_STORE,'readonly').objectStore(ACCOUNT_STORE).getAll();
+        r.onsuccess=()=>resolve(Array.isArray(r.result)?r.result:[]);
+        r.onerror=()=>reject(r.error);
+      });
+    }catch(error){
+      console.warn('[Acadex] IndexedDB account lookup failed; using localStorage fallback:',error);
+    }
+
+    rows.sort((a,b)=>(b.savedAt||0)-(a.savedAt||0));
+    const account=rows[0]||readLocalDeviceAccount();
+    return account?[account]:[];
   }
+
   async function savedDeviceAccount() {
     const rows=await savedAccounts();
     return rows[0]||null;
   }
+
   async function saveAccount(user,token) {
     if(!user?.id||!token)return;
-    const db=await idb();
-    return new Promise((resolve,reject)=>{
-      const tx=db.transaction(ACCOUNT_STORE,'readwrite');
-      const store=tx.objectStore(ACCOUNT_STORE);
-      store.clear();
-      store.put({
-        userId:user.id,email:user.email||'',displayName:user.displayName||user.email||'Student',
-        studentId:user.studentId||'',token,savedAt:Date.now()
+    const account={
+      userId:user.id,
+      email:user.email||'',
+      displayName:user.displayName||user.email||'Student',
+      studentId:user.studentId||'',
+      token,
+      savedAt:Date.now()
+    };
+
+    // Keep a single account in both stores. localStorage is the durable
+    // fallback used if IndexedDB is unavailable/reset in this browser context.
+    const localSaved=writeLocalDeviceAccount(account);
+    let indexedSaved=false;
+    try{
+      const db=await idb();
+      await new Promise((resolve,reject)=>{
+        const tx=db.transaction(ACCOUNT_STORE,'readwrite');
+        const store=tx.objectStore(ACCOUNT_STORE);
+        store.clear();
+        store.put(account);
+        tx.oncomplete=resolve;
+        tx.onerror=()=>reject(tx.error);
+        tx.onabort=()=>reject(tx.error||new Error('Could not save the device account.'));
       });
-      tx.oncomplete=resolve;
-      tx.onerror=()=>reject(tx.error);
-      tx.onabort=()=>reject(tx.error||new Error('Could not save the device account.'));
-    })
+      indexedSaved=true;
+    }catch(error){
+      console.warn('[Acadex] IndexedDB account save failed; localStorage copy retained:',error);
+    }
+
+    // Ask the browser for persistent site storage when supported. This does
+    // not block login and simply reduces the chance of storage eviction.
+    try{
+      if(navigator.storage?.persist)await navigator.storage.persist();
+    }catch(_){}
+
+    if(!localSaved&&!indexedSaved)throw new Error('Could not save the remembered student account on this device.');
   }
+
   async function removeAccount(userId) {
-    const db=await idb();
-    return new Promise((resolve,reject)=>{
-      const tx=db.transaction(ACCOUNT_STORE,'readwrite');
-      const store=tx.objectStore(ACCOUNT_STORE);
-      if(userId)store.delete(userId);else store.clear();
-      tx.oncomplete=resolve;
-      tx.onerror=()=>reject(tx.error);
-      tx.onabort=()=>reject(tx.error||new Error('Could not clear the device account.'));
-    })
+    const local=readLocalDeviceAccount();
+    if(!userId||!local||local.userId===userId)clearLocalDeviceAccount();
+
+    try{
+      const db=await idb();
+      await new Promise((resolve,reject)=>{
+        const tx=db.transaction(ACCOUNT_STORE,'readwrite');
+        const store=tx.objectStore(ACCOUNT_STORE);
+        if(userId)store.delete(userId);else store.clear();
+        tx.oncomplete=resolve;
+        tx.onerror=()=>reject(tx.error);
+        tx.onabort=()=>reject(tx.error||new Error('Could not clear the device account.'));
+      });
+    }catch(error){
+      console.warn('[Acadex] IndexedDB account removal failed:',error);
+    }
   }
   function fmt(ms) {
     ms=Math.max(0, ms);
