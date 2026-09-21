@@ -2734,11 +2734,14 @@ Fill the blank template using the MCQ set and return only the completed template
     updateGenerateBtn();
   }
 
-  function readFileAsDataUrl(file, signal) {
+  function readFileAsDataUrl(file, signal, onProgress) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       let settled = false;
-      const cleanup = () => signal?.removeEventListener('abort', onAbort);
+      const cleanup = () => {
+        signal?.removeEventListener('abort', onAbort);
+        reader.onprogress = null;
+      };
       const fail = (err) => {
         if(settled) return;
         settled = true;
@@ -2753,7 +2756,11 @@ Fill the blank template using the MCQ set and return only the completed template
         if(settled) return;
         settled = true;
         cleanup();
+        onProgress?.(100);
         resolve(e.target.result);
+      };
+      reader.onprogress = (e) => {
+        if(e.lengthComputable) onProgress?.((e.loaded / e.total) * 100);
       };
       reader.onerror = () => fail(new Error('Failed to read the PDF.'));
       reader.onabort = () => fail(new DOMException('Generation cancelled', 'AbortError'));
@@ -2762,6 +2769,108 @@ Fill the blank template using the MCQ set and return only the completed template
         signal.addEventListener('abort', onAbort, {once:true});
       }
       reader.readAsDataURL(file);
+    });
+  }
+
+  function uploadWithProgress(url, body, signal, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      let settled = false;
+
+      const cleanup = () => {
+        signal?.removeEventListener('abort', onAbort);
+        xhr.upload.onprogress = null;
+      };
+      const fail = (err) => {
+        if(settled) return;
+        settled = true;
+        cleanup();
+        reject(err);
+      };
+      const onAbort = () => {
+        try { xhr.abort(); } catch (_) {}
+        fail(new DOMException('Generation cancelled', 'AbortError'));
+      };
+
+      xhr.open('PUT', url, true);
+      xhr.upload.onprogress = (e) => {
+        if(e.lengthComputable) onProgress?.((e.loaded / e.total) * 100);
+      };
+      xhr.onload = () => {
+        if(settled) return;
+        if(xhr.status >= 200 && xhr.status < 300){
+          settled = true;
+          cleanup();
+          onProgress?.(100);
+          resolve(xhr);
+        }else{
+          fail(new Error('Upload failed with HTTP ' + xhr.status + '.'));
+        }
+      };
+      xhr.onerror = () => fail(new Error('Upload failed.'));
+      xhr.onabort = () => {
+        if(!settled) fail(new DOMException('Generation cancelled', 'AbortError'));
+      };
+
+      if(signal){
+        if(signal.aborted) return onAbort();
+        signal.addEventListener('abort', onAbort, {once:true});
+      }
+      xhr.send(body);
+    });
+  }
+
+  function createExamWithProgress(body, signal, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      let settled = false;
+
+      const cleanup = () => {
+        signal?.removeEventListener('abort', onAbort);
+        xhr.upload.onprogress = null;
+      };
+      const fail = (err) => {
+        if(settled) return;
+        settled = true;
+        cleanup();
+        reject(err);
+      };
+      const onAbort = () => {
+        try { xhr.abort(); } catch (_) {}
+        fail(new DOMException('Generation cancelled', 'AbortError'));
+      };
+
+      xhr.open('POST', API_BASE_URL + '/exam/create', true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      if(accountToken) xhr.setRequestHeader('Authorization', 'Bearer ' + accountToken);
+      xhr.upload.onprogress = (e) => {
+        if(e.lengthComputable) onProgress?.((e.loaded / e.total) * 100);
+      };
+      xhr.onload = () => {
+        if(settled) return;
+        let data = {};
+        try { data = JSON.parse(xhr.responseText || '{}'); } catch (_) {}
+        if(xhr.status >= 200 && xhr.status < 300){
+          settled = true;
+          cleanup();
+          onProgress?.(100);
+          resolve({ok:true,data});
+        }else{
+          const err = new Error(data.error || 'CREATE_FAILED');
+          err.status = xhr.status;
+          fail(err);
+        }
+      };
+      xhr.onerror = () => fail(new Error('CREATE_FAILED'));
+      xhr.onabort = () => {
+        if(!settled) fail(new DOMException('Generation cancelled', 'AbortError'));
+      };
+
+      if(signal){
+        if(signal.aborted) return onAbort();
+        signal.addEventListener('abort', onAbort, {once:true});
+      }
+      xhr.send(JSON.stringify(body));
     });
   }
 
@@ -2843,9 +2952,14 @@ Fill the blank template using the MCQ set and return only the completed template
             });
             if (!partRes.ok) throw new Error('Could not get part URL.');
             const { url } = await partRes.json();
-            // Upload chunk directly to B2
-            const up = await fetch(url, { method: 'PUT', body: chunk });
-            if (!up.ok) throw new Error('Part ' + (i+1) + ' upload failed.');
+            // Upload chunk directly to B2 with real browser upload progress.
+            const up = await uploadWithProgress(url, chunk, controller.signal, (partPct) => {
+              const completedBytes = uploaded + (chunk.size * partPct / 100);
+              const overallPct = (completedBytes / file.size) * 99;
+              const uploadedMB = (completedBytes / (1024*1024)).toFixed(1);
+              const totalMB = (file.size / (1024*1024)).toFixed(1);
+              setUploadProgress(overallPct, 'Uploading PDF…', uploadedMB + ' MB of ' + totalMB + ' MB · part ' + (i+1) + ' of ' + totalParts);
+            });
             const etag = up.headers.get('ETag') || up.headers.get('etag') || '';
             parts.push({ PartNumber: i + 1, ETag: etag });
             uploaded += chunk.size;
@@ -2854,13 +2968,14 @@ Fill the blank template using the MCQ set and return only the completed template
             const totalMB = (file.size / (1024*1024)).toFixed(1);
             setUploadProgress(pct, 'Uploading PDF…', uploadedMB + ' MB of ' + totalMB + ' MB · part ' + (i+1) + ' of ' + totalParts);
           }
-          // Complete
-          setUploadProgress(99, 'Finalising upload…', '');
+          // Finalise the B2 multipart object, then explicitly reach 100%.
+          setUploadProgress(99, 'Finalising upload…', 'Almost there…');
           const completeRes = await accountFetch('/api/teacher/b2-multipart-complete', {
             method: 'POST',
             body: JSON.stringify({ key, uploadId, parts })
           });
           if (!completeRes.ok) throw new Error('Could not finalise upload.');
+          setUploadProgress(100, 'Upload complete!', file.size >= 1024*1024 ? (file.size / (1024*1024)).toFixed(1) + ' MB uploaded' : Math.round(file.size/1024) + ' KB uploaded');
           return key;
         } catch (err) {
           // Abort multipart on failure
@@ -2876,11 +2991,13 @@ Fill the blank template using the MCQ set and return only the completed template
         const examId = 'exam-' + Math.random().toString(36).slice(2,10) + '-' + Date.now();
         setUploadProgress(0, 'Starting upload…', (fileMB.toFixed(1)) + ' MB');
         b2Key = await multipartUpload(selectedFile, examId);
-        setUploadProgress(100, 'Upload complete!', '');
-        await new Promise(r => setTimeout(r, 300));
-        hideUploadProgress();
       } else {
-        pdfDataUrl = await readFileAsDataUrl(selectedFile, controller.signal);
+        // Smaller PDFs now get the same progress UI too.
+        setUploadProgress(0, 'Preparing PDF…', (fileMB.toFixed(1)) + ' MB');
+        pdfDataUrl = await readFileAsDataUrl(selectedFile, controller.signal, (pct) => {
+          setUploadProgress(pct * 0.35, 'Preparing PDF…', Math.round(pct) + '% read');
+        });
+        setUploadProgress(35, 'Uploading PDF…', (fileMB.toFixed(1)) + ' MB');
       }
 
       if(controller.signal.aborted) throw new DOMException('Generation cancelled', 'AbortError');
@@ -2889,28 +3006,31 @@ Fill the blank template using the MCQ set and return only the completed template
         generationTimedOut = true;
         controller.abort();
       }, 20000);
-      let res;
+      let result;
       try {
-        res = await fetch(API_BASE_URL + '/exam/create', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(accountToken ? { Authorization: 'Bearer ' + accountToken } : {}) },
-          signal: controller.signal,
-          body: JSON.stringify({
-            title: title,
-            studentPassword: sPwd,
-            durationMs: totalSeconds * 1000,
-            type: 'pdf',
-            questions: [],
-            ...(b2Key ? { b2Key } : { pdfDataUrl }),
-            folderId: selectedFolderId || null
-          })
+        result = await createExamWithProgress({
+          title: title,
+          studentPassword: sPwd,
+          durationMs: totalSeconds * 1000,
+          type: 'pdf',
+          questions: [],
+          ...(b2Key ? { b2Key } : { pdfDataUrl }),
+          folderId: selectedFolderId || null
+        }, controller.signal, (pct) => {
+          // Large files already report their B2 progress. Small files use
+          // this request progress for the final 65% of the progress bar.
+          if(b2Key){
+            if(pct >= 100) setUploadProgress(100, 'Upload complete!', '');
+          }else{
+            setUploadProgress(35 + (pct * 0.65), 'Uploading PDF…', Math.round(pct) + '% sent');
+          }
         });
       } finally {
         clearTimeout(timer);
       }
 
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || 'CREATE_FAILED');
+      const body = result.data;
+      if (!result.ok) throw new Error(body.error || 'CREATE_FAILED');
       if (!body || !body.url) throw new Error('INVALID_RESPONSE');
 
       hostedUrlText.textContent = body.url;
@@ -2931,6 +3051,9 @@ Fill the blank template using the MCQ set and return only the completed template
         }
       };
 
+      setUploadProgress(100, 'Upload complete!', '');
+      await new Promise(r => setTimeout(r, 250));
+      hideUploadProgress();
       goToPanel(5);
       showToast('✅ Hosted exam created!', 'success', 3000);
     } catch (err) {
