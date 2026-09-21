@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0e0f13">
+<title>Acadex</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;background:#0e0f13;color:#eef0f5;font-family:Inter,system-ui,-apple-system,sans-serif}
+body{display:flex;align-items:center;justify-content:center;padding:24px}
+.card{width:min(430px,100%);text-align:center}
+.icon{width:76px;height:76px;border-radius:20px;display:block;margin:0 auto 20px;box-shadow:0 18px 50px #0008}
+h1{margin:0 0 8px;font-size:25px;letter-spacing:-.02em}
+p{margin:0;color:#a2a6b5;font-size:14px;line-height:1.55}
+.spinner{width:24px;height:24px;border:3px solid #292a35;border-top-color:#8b8df2;border-radius:50%;animation:spin .8s linear infinite;margin:22px auto 0}
+.small{margin-top:12px;color:#777d90;font-size:12px}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<main class="card">
+<img class="icon" src="/icons/acadex-icon.svg" alt="Acadex">
+<h1 id="title">Waking Acadex…</h1>
+<p id="status">Connecting to the server…</p>
+<div class="spinner"></div>
+<div class="small" id="small">Checking server status</div>
+</main>
+<script>
+(function(){
+  var attempt=0,redirected=false;
+  var title=document.getElementById('title'),status=document.getElementById('status'),small=document.getElementById('small');
+  function ping(){
+    if(redirected)return;
+    attempt++;
+    var controller=new AbortController();
+    var timer=setTimeout(function(){controller.abort();},3000);
+    fetch('/ping?t='+Date.now(),{cache:'no-store',signal:controller.signal})
+      .then(function(r){
+        clearTimeout(timer);
+        if(!r.ok)throw new Error('server returned '+r.status);
+        return r.json();
+      })
+      .then(function(d){
+        if(!d||d.ok!==true)throw new Error('unexpected response');
+        redirected=true;
+        title.textContent='Server is ready';
+        status.textContent='Opening Acadex…';
+        small.textContent='Connected';
+        setTimeout(function(){location.replace('/app/acadex-app-7f3c9e21');},120);
+      })
+      .catch(function(){
+        clearTimeout(timer);
+        if(redirected)return;
+        var dots=attempt%3===1?'.':attempt%3===2?'..':'...';
+        title.textContent='Waking Acadex…';
+        status.textContent='Server is starting up'+dots;
+        small.textContent='Render may be cold-starting · retrying in 5 s';
+        setTimeout(ping,5000);
+      });
+  }
+  ping();
+})();
+</script>
+</body>
+</html>
