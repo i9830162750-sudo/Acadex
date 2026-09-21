@@ -250,7 +250,22 @@ app.get('/install', (req,res) => {
 });
 
 
+// Keep the public app URL itself as a server-check boot entry. This matters
+// for already-installed PWAs whose saved start_url still points here: the real
+// app document is never sent until the boot page has confirmed /ping.
 app.get('/app/acadex-app-7f3c9e21', (req,res) => {
+  try {
+    const file = path.join(__dirname, 'public', 'boot.html');
+    res.set('Cache-Control','no-store, no-cache, must-revalidate');
+    res.type('html').send(fs.readFileSync(file, 'utf8'));
+  } catch (_) {
+    res.status(500).send('Acadex boot page is unavailable.');
+  }
+});
+
+// Actual Acadex application document. Only boot.html navigates here after the
+// server health check succeeds.
+app.get('/app/acadex-app-7f3c9e21/main', (req,res) => {
   try {
     const file = path.join(__dirname, 'public', 'app.html');
     let html = fs.readFileSync(file, 'utf8');
