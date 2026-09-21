@@ -1403,6 +1403,66 @@ app.get('/exam/:id', async(req, res) => {
   }
   function esc(v) {
     return String(v??'').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')}
+let progressSaveChain=Promise.resolve();
+let progressSaveTimer=null;
+
+function sessionProgressSnapshot(extra={}){
+  const existing=session?.progress&&typeof session.progress==='object'?session.progress:{};
+  const p={
+    answers:session?.answers&&typeof session.answers==='object'?session.answers:{},
+    currentQuestion:Number.isInteger(Number(session?.currentQuestion))?Math.max(0,Number(session.currentQuestion)):0,
+    pdfPage:Number.isInteger(Number(session?.pdfPage))?Math.max(1,Number(session.pdfPage)):1,
+    pdfScrollRatio:Number.isFinite(Number(session?.pdfScrollRatio))?Math.min(1,Math.max(0,Number(session.pdfScrollRatio))):0,
+    ...existing,
+    ...extra
+  };
+  p.answers=session?.answers&&typeof session.answers==='object'?session.answers:{};
+  session.progress=p;
+  session.currentQuestion=p.currentQuestion;
+  session.pdfPage=p.pdfPage;
+  session.pdfScrollRatio=p.pdfScrollRatio;
+  return p;
+}
+
+function persistExamProgress(extra={}, immediate=false){
+  if(!session||!studentAuthToken)return Promise.resolve();
+  const progress=sessionProgressSnapshot(extra);
+  const localSave=save({...session,examId:EXAM_ID});
+  progressSaveChain=progressSaveChain.catch(()=>{}).then(async()=>{
+    await localSave;
+    const r=await fetch(API+'/progress',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentAuthToken},
+      body:JSON.stringify({sessionToken:session.sessionToken,progress})
+    });
+    if(!r.ok){
+      const d=await r.json().catch(()=>({}));
+      throw new Error(d.error||'Could not save exam progress.');
+    }
+  }).catch(err=>console.error('[Acadex] Exam progress save failed:',err));
+  return immediate?progressSaveChain:progressSaveChain;
+}
+
+function scheduleExamProgress(extra={}){
+  sessionProgressSnapshot(extra);
+  clearTimeout(progressSaveTimer);
+  progressSaveTimer=setTimeout(()=>persistExamProgress(),350);
+}
+
+function applyServerProgress(d,fallback={}){
+  const p=d?.progress&&typeof d.progress==='object'?d.progress:(fallback.progress||{});
+  session={
+    ...fallback,
+    ...d,
+    studentAuthToken,
+    answers:p.answers&&typeof p.answers==='object'?p.answers:(fallback.answers||{}),
+    progress:p,
+    currentQuestion:Number.isInteger(Number(p.currentQuestion))?Math.max(0,Number(p.currentQuestion)):0,
+    pdfPage:Number.isInteger(Number(p.pdfPage))?Math.max(1,Number(p.pdfPage)):1,
+    pdfScrollRatio:Number.isFinite(Number(p.pdfScrollRatio))?Math.min(1,Math.max(0,Number(p.pdfScrollRatio))):0
+  };
+}
+
 async function startSession(){
   const old=await saved(); const did=deviceId();
   if(old&&old.sessionToken&&!old.finishedAt){
@@ -1413,20 +1473,21 @@ async function startSession(){
     const d=await r.json().catch(()=>({}));
     if(r.ok){
       if(!d.sessionToken) throw new Error('The server did not return a session token. Please try again.');
-      session={...old, ...d, studentAuthToken, answers:old.answers||{}};
+      applyServerProgress(d,old);
       await save({...session,examId:EXAM_ID});
       return d;
     }
     if(r.status === 410){throw new Error('This exam attempt is already finished.')}
-    // If the saved session is stale/invalid, fall through and create a fresh
-    // active session after verifying the exam password.
   }
+
   const body={deviceId:did, password:$('pwd').value};
   const r=await fetch(API+'/session', {method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentAuthToken}, body:JSON.stringify(body)});
   const d=await r.json().catch(()=>({}));
   if(!r.ok)throw new Error(d.error||'Could not start exam');
   if(!d.sessionToken)throw new Error('The server did not return a session token. Please try again.');
-  session={...d, studentAuthToken, answers:{}};await save({...session, examId:EXAM_ID});return d;
+  applyServerProgress(d,{});
+  await save({...session,examId:EXAM_ID});
+  return d;
 }
 function renderTemplate(){
   const paper=$('paper'); const qs=examData.questions||[];
@@ -1440,15 +1501,19 @@ function renderTemplate(){
   html+='</div><div class="pager-nav"><button class="finish" id="prevBtn" type="button">← Previous</button><div class="pager-count" id="pagerCount">1 / '+qs.length+'</div><button class="finish" id="nextBtn" type="button">Next →</button><button class="finish hidden" id="submitBtn" type="button">Submit Exam</button></div>';
   paper.innerHTML=html;
   Object.keys(session.answers||{}).forEach(i=>{const input=paper.querySelector('input[name="q'+i+'"][value="'+String(session.answers[i])+'"]');if(input)input.checked=true});
-  paper.querySelectorAll('input[type="radio"]').forEach(input=>input.addEventListener('change',async()=>{session.answers=session.answers||{};session.answers[input.name.slice(1)]=input.value;await save({...session,examId:EXAM_ID})}));
-  let current=0;
+  paper.querySelectorAll('input[type="radio"]').forEach(input=>input.addEventListener('change',()=>{
+    session.answers=session.answers||{};
+    session.answers[input.name.slice(1)]=input.value;
+    persistExamProgress({answers:session.answers},true);
+  }));
+  let current=Math.min(qs.length-1,Math.max(0,Number(session.currentQuestion)||0));
   const update=()=>{paper.querySelectorAll('.question-page').forEach((el,i)=>el.classList.toggle('active',i===current));$('prevBtn').disabled=current===0;const last=current===qs.length-1;$('nextBtn').classList.toggle('hidden',last);$('submitBtn').classList.toggle('hidden',!last);$('pagerCount').textContent=(current+1)+' / '+qs.length};
-  $('prevBtn').onclick=()=>{if(current>0){current--;update()}};
-  $('nextBtn').onclick=()=>{if(current<qs.length-1){current++;update()}};
+  $('prevBtn').onclick=()=>{if(current>0){current--;session.currentQuestion=current;update();persistExamProgress({currentQuestion:current},true)}};
+  $('nextBtn').onclick=()=>{if(current<qs.length-1){current++;session.currentQuestion=current;update();persistExamProgress({currentQuestion:current},true)}};
   $('submitBtn').onclick=()=>submitExam(false);
   update();
 }
-async function submitExam(auto){if(!session)return;clearInterval(timerId);const r=await fetch(API+'/finish', {method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentAuthToken}, body:JSON.stringify({sessionToken:session.sessionToken, answers:session.answers||{}})});const d=await r.json();if(!r.ok){if(!auto)alert(d.error||'Could not submit exam');startTimer();return false}session.finishedAt=d.submittedAt||Date.now();await save({...session, examId:EXAM_ID, finishedAt:session.finishedAt, submissionId:d.submissionId, answers:session.answers||{}});if(examData?.type==='pdf'){ $('pdfSubmitBtn').classList.add('hidden'); $('timer').style.display='none'; $('paper').innerHTML='<div class="review-head"><div style="font-size:24px;font-weight:800">Exam Submitted</div><p>Your PDF exam has been submitted and this attempt is now closed.</p></div>'; return true;}showReview(d);return true}
+async function submitExam(auto){if(!session)return;clearInterval(timerId);clearTimeout(progressSaveTimer);await persistExamProgress({},true);const r=await fetch(API+'/finish', {method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentAuthToken}, body:JSON.stringify({sessionToken:session.sessionToken, answers:session.answers||{}})});const d=await r.json();if(!r.ok){if(!auto)alert(d.error||'Could not submit exam');startTimer();return false}session.finishedAt=d.submittedAt||Date.now();await save({...session, examId:EXAM_ID, finishedAt:session.finishedAt, submissionId:d.submissionId, answers:session.answers||{}});if(examData?.type==='pdf'){ $('pdfSubmitBtn').classList.add('hidden'); $('timer').style.display='none'; $('paper').innerHTML='<div class="review-head"><div style="font-size:24px;font-weight:800">Exam Submitted</div><p>Your PDF exam has been submitted and this attempt is now closed.</p></div>'; return true;}showReview(d);return true}
 function showReview(d){$('timer').style.display='none';let html='<div class="review-head"><div style="font-size:24px;font-weight:800">Exam Complete</div><div class="score">'+d.score+' / '+d.total+'</div><div class="pct">'+d.percentage+'%</div><p>This attempt is now closed. You cannot retake this exam.</p></div>';d.results.forEach(r => {const cls=r.correct?'correct':r.yourAnswer === 'Unanswered'?'unanswered':'wrong';const status=r.correct?'Correct ✓':r.yourAnswer === 'Unanswered'?'Unanswered':'Wrong ✗';html+='<div class="review-item"><div class="status '+cls+'">'+status+' — Question '+r.questionNumber+'</div><div><b>'+esc(r.question)+'</b></div><div class="review-answer"><span class="review-label">Your answer:</span> '+esc(r.yourAnswer)+'</div><div class="review-answer"><span class="review-label">Correct answer:</span> '+esc(r.correctAnswer)+'</div></div>'});$('paper').innerHTML=html}
 function startTimer(){clearInterval(timerId);timerId=setInterval(async() => {const left=Number(session.endAt)-Date.now();$('timer').textContent=fmt(left);if(left<=0){clearInterval(timerId);await submitExam(true)}}, 250);$('timer').textContent=fmt(Number(session.endAt)-Date.now())}
 async function showExam(d){examData=d;$('portal').style.display='none';$('app').style.display='block';$('app').classList.toggle('pdf-mode',d.type==='pdf');$('app').classList.remove('pdf-reading');document.querySelector('.pdf-reader-rail')?.remove();$('examTitle').textContent=d.title||EXAM_TITLE;$('pdfSubmitBtn').classList.toggle('hidden',d.type!=='pdf');if(d.type==='pdf'){$('pdfSubmitBtn').onclick=()=>submitExam(false);setupPdfReadingMode()}if(d.type === 'template')renderTemplate();else await renderPDF(d.pdfUrl);startTimer()}
@@ -1497,6 +1562,9 @@ async function renderPDF(pdfUrl){
     });
     page=Math.min(pdf.numPages,Math.max(1,page));
     count.textContent=page+' / '+pdf.numPages;
+    session.pdfPage=page;
+    session.pdfScrollRatio=ratioY;
+    scheduleExamProgress({pdfPage:page,pdfScrollRatio:ratioY});
     const track=thumb.parentElement;
     const travel=Math.max(0,track.clientHeight-thumb.offsetHeight);
     thumb.style.top=(travel*ratioY)+'px';
@@ -1602,6 +1670,18 @@ async function renderPDF(pdfUrl){
 
   slots.forEach(slot=>observer.observe(slot));
   await renderPage(1);
+
+  const resumePdfPage=Math.min(pdf.numPages,Math.max(1,Number(session.pdfPage)||1));
+  const resumePdfRatio=Math.min(1,Math.max(0,Number(session.pdfScrollRatio)||0));
+  requestAnimationFrame(()=>{
+    const target=slots[resumePdfPage-1];
+    if(target){
+      paper.scrollTop=target.offsetTop;
+    }else{
+      paper.scrollTop=Math.max(0,(paper.scrollHeight-paper.clientHeight)*resumePdfRatio);
+    }
+    updatePdfReaderPosition();
+  });
 
   paper.addEventListener('scroll',updatePdfReaderPosition,{passive:true});
 
@@ -1779,17 +1859,11 @@ function setupPdfReadingMode(){
   });
   wake();
 }
-let pdfCloseSubmitted=false;
-function submitPdfOnClose(){
-  if(examData?.type!=='pdf'||!session||session.finishedAt||!studentAuthToken||pdfCloseSubmitted)return;
-  pdfCloseSubmitted=true;
-  const payload=JSON.stringify({sessionToken:session.sessionToken,answers:{}});
-  try{fetch(API+'/finish',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentAuthToken},body:payload});}catch(_){}
-}
-let accountMode='login';function setAccountMode(mode){accountMode=mode;$('err').textContent='';const register=mode==='register';$('studentName').classList.toggle('hidden',!register);$('studentId').classList.toggle('hidden',!register);$('studentLogin').textContent=register?'Create Student Account':'Sign in as Student';$('showLogin').style.background=register?'#2a2927':'';$('showLogin').style.color=register?'#fff':'';$('showRegister').style.background=register?'':'#2a2927';$('showRegister').style.color=register?'':'#fff';$('accountPrompt').textContent=register?'Create your student account, then enter the exam password.':'Sign in with your student account, or create one if you don’t have an account yet.';}async function loginStudent(){const btn=$('studentLogin');$('err').textContent='';btn.disabled=true;btn.textContent=accountMode==='register'?'Creating…':'Signing in…';try{const email=$('studentEmail').value.trim().toLowerCase(),password=$('studentPassword').value;if(!email||!password)throw new Error('Enter your student account email and password.');let d;if(accountMode==='register'){const name=$('studentName').value.trim(),studentId=$('studentId').value.trim();if(!name)throw new Error('Enter your full name.');if(!studentId)throw new Error('Enter your Student ID.');const r=await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:'student',email,password,displayName:name,studentId})});d=await r.json();if(!r.ok)throw new Error(d.error||'Could not create account.');}else{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});d=await r.json();if(!r.ok)throw new Error(d.error||'Could not sign in.');}if(!d.user||d.user.role!=='student')throw new Error('This is not a student account.');studentAuthToken=d.token;const old=await saved();if(old&&old.sessionToken&&!old.finishedAt){session={...old,studentAuthToken};await save({...session,examId:EXAM_ID});}$('studentWelcome').textContent='Signed in as '+(d.user.displayName||d.user.email)+(d.user.studentId?' · Student ID '+d.user.studentId:'');$('accountStep').classList.add('hidden');$('accountTabs').classList.add('hidden');$('examStep').classList.remove('hidden');$('pwd').focus();}catch(e){$('err').textContent=e.message;btn.disabled=false;btn.textContent=accountMode==='register'?'Create Student Account':'Sign in as Student'}}
+// Leaving or refreshing the page does NOT submit an unfinished exam.
+  // The student's active session and progress remain resumable until the timer expires
+  // or the student explicitly presses Submit Exam.
+  let accountMode='login';function setAccountMode(mode){accountMode=mode;$('err').textContent='';const register=mode==='register';$('studentName').classList.toggle('hidden',!register);$('studentId').classList.toggle('hidden',!register);$('studentLogin').textContent=register?'Create Student Account':'Sign in as Student';$('showLogin').style.background=register?'#2a2927':'';$('showLogin').style.color=register?'#fff':'';$('showRegister').style.background=register?'':'#2a2927';$('showRegister').style.color=register?'':'#fff';$('accountPrompt').textContent=register?'Create your student account, then enter the exam password.':'Sign in with your student account, or create one if you don’t have an account yet.';}async function loginStudent(){const btn=$('studentLogin');$('err').textContent='';btn.disabled=true;btn.textContent=accountMode==='register'?'Creating…':'Signing in…';try{const email=$('studentEmail').value.trim().toLowerCase(),password=$('studentPassword').value;if(!email||!password)throw new Error('Enter your student account email and password.');let d;if(accountMode==='register'){const name=$('studentName').value.trim(),studentId=$('studentId').value.trim();if(!name)throw new Error('Enter your full name.');if(!studentId)throw new Error('Enter your Student ID.');const r=await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:'student',email,password,displayName:name,studentId})});d=await r.json();if(!r.ok)throw new Error(d.error||'Could not create account.');}else{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});d=await r.json();if(!r.ok)throw new Error(d.error||'Could not sign in.');}if(!d.user||d.user.role!=='student')throw new Error('This is not a student account.');studentAuthToken=d.token;const old=await saved();if(old&&old.sessionToken&&!old.finishedAt){session={...old,studentAuthToken};await save({...session,examId:EXAM_ID});}$('studentWelcome').textContent='Signed in as '+(d.user.displayName||d.user.email)+(d.user.studentId?' · Student ID '+d.user.studentId:'');$('accountStep').classList.add('hidden');$('accountTabs').classList.add('hidden');$('examStep').classList.remove('hidden');$('pwd').focus();}catch(e){$('err').textContent=e.message;btn.disabled=false;btn.textContent=accountMode==='register'?'Create Student Account':'Sign in as Student'}}
 async function enter(){const btn=$('enter');$('err').textContent='';btn.disabled=true;btn.textContent='Checking…';try{if(!studentAuthToken)throw new Error('Sign in to your student account first.');const d=await startSession();if(!d||!d.sessionToken||!session||!session.sessionToken)throw new Error('Could not establish an exam session. Please try again.');await showExam(d)}catch(e){console.error('Acadex exam start error:',e);$('err').textContent=e.message;btn.disabled=false;btn.textContent='Enter Exam'}}
-window.addEventListener('pagehide',submitPdfOnClose);
-window.addEventListener('beforeunload',submitPdfOnClose);
 $('showLogin').addEventListener('click',()=>setAccountMode('login'));$('showRegister').addEventListener('click',()=>setAccountMode('register'));$('accountStep').addEventListener('submit', e => {e.preventDefault();loginStudent()});$('examStep').addEventListener('submit', e => {e.preventDefault();enter()});
 (async() => {try{const old=await saved();if(old&&old.studentAuthToken&&!old.finishedAt){studentAuthToken=old.studentAuthToken;$('studentEmail').value='';}}catch(_){} $('studentEmail').focus()})();
 </script></body></html>`);
