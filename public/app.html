@@ -4480,6 +4480,70 @@ window.acadexSetIcon = function(el, name, preserveLabel=false) {
   body[data-app-view="create"] .generation-state{min-height:300px;padding:28px 14px}
 }
 </style>
+<style id="acadex-server-gate-style">
+#acadexServerGate{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:24px;background:#0e0f13;color:#eef0f5;font-family:Inter,system-ui,-apple-system,sans-serif}
+#acadexServerGate .gate-card{width:min(430px,100%);text-align:center}
+#acadexServerGate .gate-icon{width:76px;height:76px;border-radius:20px;display:block;margin:0 auto 20px;box-shadow:0 18px 50px #0008}
+#acadexServerGate h1{margin:0 0 8px;font-size:25px;letter-spacing:-.02em}
+#acadexServerGate p{margin:0;color:#a2a6b5;font-size:14px;line-height:1.55}
+#acadexServerGate .gate-spinner{width:24px;height:24px;border:3px solid #292a35;border-top-color:#8b8df2;border-radius:50%;animation:acadexGateSpin .8s linear infinite;margin:22px auto 0}
+#acadexServerGate .gate-small{margin-top:12px;color:#777d90;font-size:12px}
+@keyframes acadexGateSpin{to{transform:rotate(360deg)}}
+</style>
+<div id="acadexServerGate" aria-live="polite">
+  <div class="gate-card">
+    <img class="gate-icon" src="/icons/acadex-icon.svg" alt="Acadex" onerror="this.style.display='none'">
+    <h1 id="acadexServerGateTitle">Waking Acadex…</h1>
+    <p id="acadexServerGateStatus">Connecting to the server…</p>
+    <div class="gate-spinner"></div>
+    <div class="gate-small" id="acadexServerGateSmall">Checking server status</div>
+  </div>
+</div>
+<script id="acadex-server-gate-script">
+(function(){
+  var gate=document.getElementById('acadexServerGate');
+  var title=document.getElementById('acadexServerGateTitle');
+  var status=document.getElementById('acadexServerGateStatus');
+  var small=document.getElementById('acadexServerGateSmall');
+  if(!gate||!title||!status)return;
+  var attempt=0;
+  var ready=false;
+
+  function ping(){
+    attempt++;
+    var controller=new AbortController();
+    var timer=setTimeout(function(){controller.abort();},3000);
+    fetch('/ping?t='+Date.now(),{cache:'no-store',signal:controller.signal})
+      .then(function(r){
+        clearTimeout(timer);
+        if(!r.ok)throw new Error('server returned '+r.status);
+        return r.json();
+      })
+      .then(function(d){
+        if(!d||d.ok!==true)throw new Error('unexpected ping response');
+        ready=true;
+        title.textContent='Server is ready';
+        status.textContent='Opening Acadex…';
+        small.textContent='Connected';
+        setTimeout(function(){
+          gate.remove();
+          document.documentElement.classList.add('acadex-server-ready');
+        },180);
+      })
+      .catch(function(){
+        clearTimeout(timer);
+        if(ready)return;
+        var dots=attempt%3===1?'.':attempt%3===2?'..':'...';
+        title.textContent='Waking Acadex…';
+        status.textContent='Server is starting up'+dots;
+        small.textContent='Render may be cold-starting · retrying in 5 s';
+        setTimeout(ping,5000);
+      });
+  }
+
+  ping();
+})();
+</script>
 </body></html>
 
 
