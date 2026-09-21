@@ -2118,7 +2118,7 @@ $('examStep').addEventListener('submit',e=>{e.preventDefault();enter()});
     console.error('[Acadex] Saved student account restore failed:',e);
   }
   $('studentEmail').focus();
-}})();</script></body></html>`);
+})();</script></body></html>`);
 });
 
 initDatabase().then(()=>{const PORT=process.env.PORT||3000;app.listen(PORT,()=>console.log(`Exam backend listening on port ${PORT}`));}).catch(error=>{console.error('Database initialization failed:',error);process.exit(1)});
