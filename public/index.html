@@ -81,30 +81,41 @@ h1{margin:0 0 8px;font-size:28px;letter-spacing:-.02em}
     return;
   }
 
-  // Desktop browser — ping /api/health client-side before going to app
-  // This runs entirely in the browser — Render is NOT needed to serve this page
-  // because the SW caches it. The user sees this screen while Render cold-starts.
+  // Desktop browser — ping /api/health client-side before going to app.
+  // Render holds the TCP connection open during cold start instead of refusing it,
+  // so we use a short 3s timeout and verify the response body contains our own
+  // {"ok":true} to confirm it's actually our server (not Render's coldstart page).
   title.textContent = 'Waking Acadex…';
   status.textContent = 'Connecting to the server…';
+  var attempt = 0;
 
   function ping() {
+    attempt++;
     var controller = new AbortController();
-    var timer = setTimeout(function(){ controller.abort(); }, 9000);
+    // Short 3s timeout — if Render is cold it holds the connection but won't
+    // respond in 3s, so we abort quickly and show the retry state immediately
+    var timer = setTimeout(function(){ controller.abort(); }, 3000);
+
     fetch('/api/health?t=' + Date.now(), {
       cache: 'no-store',
       signal: controller.signal
     }).then(function(r){
       clearTimeout(timer);
-      if (r.ok) {
-        status.textContent = 'Server is ready. Opening Acadex…';
-        setTimeout(function(){ location.replace(APP); }, 150);
+      if (!r.ok) throw new Error('not ok');
+      return r.json();
+    }).then(function(d){
+      // Verify it's actually our server, not Render's error page
+      if (d && d.ok === true) {
+        status.textContent = 'Server is ready — opening Acadex…';
+        setTimeout(function(){ location.replace(APP); }, 120);
       } else {
-        throw new Error('not ready');
+        throw new Error('unexpected response');
       }
     }).catch(function(){
       clearTimeout(timer);
-      status.textContent = 'Server is waking up… checking again in 10 s';
-      setTimeout(ping, 10000);
+      var dots = attempt % 3 === 1 ? '.' : attempt % 3 === 2 ? '..' : '...';
+      status.textContent = 'Server is starting up' + dots + ' (retrying in 5 s)';
+      setTimeout(ping, 5000);
     });
   }
 
