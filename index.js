@@ -61,10 +61,8 @@ async function getB2ObjectSize(key){
 }
 const app = express();
 app.use(cors());
-app.use(express.json( {
+app.use(express.json({limit:'25mb'}));
 app.use(express.static(path.join(__dirname, 'public')));
-  limit: '25mb'
-}));
 const ACADEX_MOBILE_NAV_FIX = `
 <style id="acadex-mobile-nav-safe-area-fix">
 @media (max-width:600px){
