@@ -2890,6 +2890,7 @@ Fill the blank template using the MCQ set and return only the completed template
     hideErrorBanner();
     const controller = new AbortController();
     activeGenerationController = controller;
+    let generationTimedOut = false;
 
     try {
       if (!navigator.onLine) throw new Error('PING_FAILED');
@@ -2900,8 +2901,6 @@ Fill the blank template using the MCQ set and return only the completed template
       const DIRECT_THRESHOLD = 5 * 1024 * 1024;
       let b2Key = null;
       let pdfDataUrl = null;
-
-      let generationTimedOut = false;
 
       // Warn if file is large
       const fileMB = selectedFile.size / (1024 * 1024);
