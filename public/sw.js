@@ -1,5 +1,6 @@
-const CACHE = 'acadex-v-20260921-7';
+const CACHE = 'acadex-v-20260921-8';
 const STATIC_ASSETS = [
+  '/boot.html',
   '/install',
   '/manifest.json',
   '/icons/acadex-icon.svg',
@@ -47,9 +48,9 @@ self.addEventListener('fetch', event => {
   // receiving a cached response from the service worker.
   if (url.pathname.startsWith('/api/') || url.pathname === '/ping') return;
 
-  // Keep the /install entry page available offline, but let the server
-  // handle / so its 302 redirect to /install is preserved.
-  if (url.pathname === '/install') {
+  // Keep the local boot page available offline. It performs the server health
+  // check itself and only navigates to the app after /ping succeeds.
+  if (url.pathname === '/boot.html') {
     event.respondWith(
       caches.match(event.request).then(cached => {
         if (cached) return cached;
