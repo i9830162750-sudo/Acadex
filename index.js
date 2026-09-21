@@ -809,6 +809,17 @@ app.get('/api/teacher/students/:studentId/results/:submissionId', async(req,res)
 app.get('/ping', (req, res) => res.json({ok:true, ts:Date.now()}));
 app.get('/api/health', (req, res) => res.json({ok:true, ts:Date.now(), version:ACADEX_VERSION}));
 
+app.post('/api/teacher/b2-presign', async(req,res)=>{ try{
+  const u=await requireRole(req,res,'teacher'); if(!u)return;
+  if(!b2Configured)return res.status(503).json({error:'B2 storage not configured.'});
+  const {contentType='application/pdf', examId}=req.body||{};
+  if(!examId)return res.status(400).json({error:'examId required.'});
+  const key='exams/'+examId+'/pdf-'+Date.now()+'.pdf';
+  const cmd=new PutObjectCommand({Bucket:process.env.B2_BUCKET,Key:key,ContentType:contentType});
+  const url=await getSignedUrl(b2,cmd,{expiresIn:3600});
+  res.json({uploadUrl:url,key});
+}catch(err){console.error(err);res.status(500).json({error:'Could not generate upload URL.'});} });
+
 app.post('/exam/create', async(req, res) => {
   try{
     const user=await requireRole(req,res,'teacher'); if(!user)return;
