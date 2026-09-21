@@ -1,4 +1,4 @@
-const CACHE = 'acadex-v-20260921-6';
+const CACHE = 'acadex-v-20260921-7';
 const STATIC_ASSETS = [
   '/install',
   '/manifest.json',
@@ -42,8 +42,10 @@ self.addEventListener('fetch', event => {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
   if (url.origin !== self.location.origin) return;
 
-  // Never intercept API calls — always go straight to network
-  if (url.pathname.startsWith('/api/')) return;
+  // Never intercept API calls or the server health ping — always go straight to network.
+  // The PWA server gate must be able to detect a Render cold start instead of
+  // receiving a cached response from the service worker.
+  if (url.pathname.startsWith('/api/') || url.pathname === '/ping') return;
 
   // Keep the /install entry page available offline, but let the server
   // handle / so its 302 redirect to /install is preserved.
