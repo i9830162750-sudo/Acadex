@@ -1406,6 +1406,8 @@ async function renderPDF(pdfUrl){
   $('app').appendChild(rail);
 
   if(!pdfUrl) throw new Error('PDF stream URL was not provided by the server.');
+  // Load through the authenticated streaming endpoint. PDF.js can request byte
+  // ranges instead of receiving the entire PDF as one giant data URL.
   const pdf=await pdfjsLib.getDocument({
     url:pdfUrl,
     httpHeaders:{
@@ -1414,20 +1416,23 @@ async function renderPDF(pdfUrl){
     },
     rangeChunkSize:1024*1024,
     disableRange:false,
-    disableStream:false,
-    disableAutoFetch:false
+    disableStream:true,
+    disableAutoFetch:true
   }).promise;
+
   const renderScale=2.25;
   let zoomScale=1.35;
   const count=$('pdfBottomPageCount'), thumb=$('pdfScrollThumb');
+  const slots=[];
+  const rendered=new Set();
+  const rendering=new Map();
 
   function updatePdfReaderPosition(){
     const maxY=paper.scrollHeight-paper.clientHeight;
     const ratioY=maxY>0?paper.scrollTop/maxY:0;
-    const canvases=[...paper.querySelectorAll('canvas')];
     let page=1;
-    canvases.forEach((canvas,index)=>{
-      if(canvas.offsetTop <= paper.scrollTop + paper.clientHeight*.35) page=index+1;
+    slots.forEach((slot,index)=>{
+      if(slot.offsetTop <= paper.scrollTop + paper.clientHeight*.35) page=index+1;
     });
     page=Math.min(pdf.numPages,Math.max(1,page));
     count.textContent=page+' / '+pdf.numPages;
@@ -1438,11 +1443,17 @@ async function renderPDF(pdfUrl){
 
   function updateCanvasZoom(){
     const factor=zoomScale/renderScale;
-    paper.querySelectorAll('canvas').forEach(canvas=>{
-      const w=Number(canvas.dataset.baseWidth)||canvas.width;
-      const h=Number(canvas.dataset.baseHeight)||canvas.height;
-      canvas.style.width=(w*factor)+'px';
-      canvas.style.height=(h*factor)+'px';
+    slots.forEach(slot=>{
+      const canvas=slot.querySelector('canvas');
+      const w=Number(slot.dataset.baseWidth)||0;
+      const h=Number(slot.dataset.baseHeight)||0;
+      if(w&&h){
+        slot.style.height=(h*factor+22)+'px';
+        if(canvas){
+          canvas.style.width=(w*factor)+'px';
+          canvas.style.height=(h*factor)+'px';
+        }
+      }
     });
     requestAnimationFrame(updatePdfReaderPosition);
   }
@@ -1465,22 +1476,71 @@ async function renderPDF(pdfUrl){
     });
   }
 
-  for(let n=1;n<=pdf.numPages;n++){
-    const page=await pdf.getPage(n);
-    const vp=page.getViewport({scale:renderScale});
-    const canvas=document.createElement('canvas');
-    canvas.width=vp.width;
-    canvas.height=vp.height;
-    canvas.dataset.baseWidth=String(vp.width);
-    canvas.dataset.baseHeight=String(vp.height);
-    canvas.dataset.page=String(n);
-    canvas.style.width=(vp.width*(zoomScale/renderScale))+'px';
-    canvas.style.height=(vp.height*(zoomScale/renderScale))+'px';
-    canvas.style.maxWidth='none';
-    canvas.style.display='block';
-    paper.appendChild(canvas);
-    await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+  async function renderPage(pageNumber){
+    const index=pageNumber-1;
+    const slot=slots[index];
+    if(!slot||rendered.has(index)||rendering.has(index))return;
+    const task=(async()=>{
+      const page=await pdf.getPage(pageNumber);
+      const vp=page.getViewport({scale:renderScale});
+      slot.dataset.baseWidth=String(vp.width);
+      slot.dataset.baseHeight=String(vp.height);
+      slot.style.height=(vp.height*(zoomScale/renderScale)+22)+'px';
+      slot.innerHTML='';
+      const canvas=document.createElement('canvas');
+      canvas.width=vp.width;
+      canvas.height=vp.height;
+      canvas.dataset.baseWidth=String(vp.width);
+      canvas.dataset.baseHeight=String(vp.height);
+      canvas.dataset.page=String(pageNumber);
+      canvas.style.width=(vp.width*(zoomScale/renderScale))+'px';
+      canvas.style.height=(vp.height*(zoomScale/renderScale))+'px';
+      canvas.style.maxWidth='none';
+      canvas.style.display='block';
+      canvas.style.margin='0 auto 22px';
+      slot.appendChild(canvas);
+      await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+      rendered.add(index);
+      rendering.delete(index);
+      updatePdfReaderPosition();
+    })().catch(err=>{
+      rendering.delete(index);
+      console.error('[Acadex] PDF page '+pageNumber+' render failed:',err);
+      slot.innerHTML='<div style="padding:28px;text-align:center;color:#b3261e;font:600 14px system-ui">Could not render this page.</div>';
+      slot.style.height='120px';
+    });
+    rendering.set(index,task);
+    return task;
   }
+
+  // Reserve lightweight placeholders for every page. This gives the reader a
+  // stable scrollable document without creating hundreds of canvases at once.
+  for(let n=1;n<=pdf.numPages;n++){
+    const slot=document.createElement('div');
+    slot.className='pdf-page-slot';
+    slot.dataset.page=String(n);
+    slot.style.minHeight='900px';
+    slot.style.position='relative';
+    slot.style.width='100%';
+    paper.appendChild(slot);
+    slots.push(slot);
+  }
+
+  const observer=new IntersectionObserver(entries=>{
+    entries.forEach(entry=>{
+      if(entry.isIntersecting){
+        const n=Number(entry.target.dataset.page);
+        renderPage(n);
+        // Keep a small render-ahead window for smooth scrolling.
+        renderPage(n-1);
+        renderPage(n+1);
+        renderPage(n+2);
+      }
+    });
+  },{root:paper,rootMargin:'1400px 0px'});
+
+  slots.forEach(slot=>observer.observe(slot));
+  await renderPage(1);
 
   paper.addEventListener('scroll',updatePdfReaderPosition,{passive:true});
   $('pdfZoomIn').onclick=()=>setZoom(zoomScale+.2);
@@ -1513,12 +1573,12 @@ async function renderPDF(pdfUrl){
       paper.style.cursor='grabbing';
     }else if(pointers.size===2){
       dragPointerId=null;
-      const s=twoPointers();
-      if(!s)return;
-      pinchStartDistance=s.distance;
+      const ps=twoPointers();
+      if(!ps)return;
+      pinchStartDistance=ps.distance;
       pinchBaseScale=zoomScale;
       pinchTargetScale=zoomScale;
-      pinchStartCenterX=s.centerX; pinchStartCenterY=s.centerY;
+      pinchStartCenterX=ps.centerX; pinchStartCenterY=ps.centerY;
       pinchStartScrollLeft=paper.scrollLeft; pinchStartScrollTop=paper.scrollTop;
     }
   });
@@ -1528,18 +1588,24 @@ async function renderPDF(pdfUrl){
     pointers.set(e.pointerId,point(e));
     if(pointers.size>=2&&pinchStartDistance){
       e.preventDefault();
-      const s=twoPointers();
-      if(!s)return;
-      pinchTargetScale=Math.min(3,Math.max(.7,pinchBaseScale*(s.distance/pinchStartDistance)));
+      const ps=twoPointers();
+      if(!ps)return;
+      pinchTargetScale=Math.min(3,Math.max(.7,pinchBaseScale*(ps.distance/pinchStartDistance)));
       const rect=paper.getBoundingClientRect();
-      const localX=s.centerX-rect.left, localY=s.centerY-rect.top;
+      const localX=ps.centerX-rect.left, localY=ps.centerY-rect.top;
       const contentX=(pinchStartScrollLeft+localX)/pinchBaseScale;
       const contentY=(pinchStartScrollTop+localY)/pinchBaseScale;
       const factor=pinchTargetScale/renderScale;
-      paper.querySelectorAll('canvas').forEach(canvas=>{
-        const w=Number(canvas.dataset.baseWidth),h=Number(canvas.dataset.baseHeight);
-        canvas.style.width=(w*factor)+'px';
-        canvas.style.height=(h*factor)+'px';
+      slots.forEach(slot=>{
+        const canvas=slot.querySelector('canvas');
+        const w=Number(slot.dataset.baseWidth)||0,h=Number(slot.dataset.baseHeight)||0;
+        if(w&&h){
+          slot.style.height=(h*factor+22)+'px';
+          if(canvas){
+            canvas.style.width=(w*factor)+'px';
+            canvas.style.height=(h*factor)+'px';
+          }
+        }
       });
       paper.scrollLeft=Math.max(0,contentX*pinchTargetScale-localX);
       paper.scrollTop=Math.max(0,contentY*pinchTargetScale-localY);
