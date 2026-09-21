@@ -2784,21 +2784,91 @@ Fill the blank template using the MCQ set and return only the completed template
 
       let generationTimedOut = false;
 
-      if (selectedFile.size > DIRECT_THRESHOLD) {
-        const examId = 'exam-' + Math.random().toString(36).slice(2,10) + '-' + Date.now();
-        const presignRes = await accountFetch('/api/teacher/b2-presign', {
+      // Warn if file is large
+      const fileMB = selectedFile.size / (1024 * 1024);
+      if (fileMB > 50) {
+        showToast('Large file (' + fileMB.toFixed(0) + ' MB) — upload may take a few minutes on slow connections.', 'info', 6000);
+      }
+
+      const uploadProgressWrap = document.getElementById('uploadProgressWrap');
+      const uploadProgressBar  = document.getElementById('uploadProgressBar');
+      const uploadProgressPct  = document.getElementById('uploadProgressPct');
+      const uploadProgressLabel= document.getElementById('uploadProgressLabel');
+      const uploadProgressSub  = document.getElementById('uploadProgressSub');
+
+      function setUploadProgress(pct, label, sub) {
+        if (!uploadProgressWrap) return;
+        uploadProgressWrap.style.display = 'block';
+        if (uploadProgressBar) { uploadProgressBar.style.width = pct + '%'; }
+        if (uploadProgressPct) { uploadProgressPct.textContent = Math.round(pct) + '%'; }
+        if (label && uploadProgressLabel) { uploadProgressLabel.textContent = label; }
+        if (sub !== undefined && uploadProgressSub) { uploadProgressSub.textContent = sub; }
+      }
+
+      function hideUploadProgress() {
+        if (uploadProgressWrap) uploadProgressWrap.style.display = 'none';
+      }
+
+      async function multipartUpload(file, examId) {
+        const CHUNK = 10 * 1024 * 1024; // 10 MB per part (B2 minimum is 5 MB)
+        const totalParts = Math.ceil(file.size / CHUNK);
+        // Start multipart upload
+        const startRes = await accountFetch('/api/teacher/b2-multipart-start', {
           method: 'POST',
           body: JSON.stringify({ examId, contentType: 'application/pdf' })
         });
-        if (!presignRes.ok) throw new Error('Could not get upload URL. Try a smaller file.');
-        const { uploadUrl, key } = await presignRes.json();
-        // Upload directly from browser to B2 - no signal, no custom headers that trigger preflight
-        const uploadRes = await fetch(uploadUrl, {
-          method: 'PUT',
-          body: selectedFile
-        });
-        if (!uploadRes.ok) throw new Error('PDF upload failed (' + uploadRes.status + '). Please try again.');
-        b2Key = key;
+        if (!startRes.ok) throw new Error('Could not start upload.');
+        const { uploadId, key } = await startRes.json();
+        const parts = [];
+        let uploaded = 0;
+        try {
+          for (let i = 0; i < totalParts; i++) {
+            if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+            const start = i * CHUNK;
+            const chunk = file.slice(start, Math.min(start + CHUNK, file.size));
+            // Get presigned URL for this part
+            const partRes = await accountFetch('/api/teacher/b2-multipart-part', {
+              method: 'POST',
+              body: JSON.stringify({ key, uploadId, partNumber: i + 1 })
+            });
+            if (!partRes.ok) throw new Error('Could not get part URL.');
+            const { url } = await partRes.json();
+            // Upload chunk directly to B2
+            const up = await fetch(url, { method: 'PUT', body: chunk });
+            if (!up.ok) throw new Error('Part ' + (i+1) + ' upload failed.');
+            const etag = up.headers.get('ETag') || up.headers.get('etag') || '';
+            parts.push({ PartNumber: i + 1, ETag: etag });
+            uploaded += chunk.size;
+            const pct = (uploaded / file.size) * 100;
+            const uploadedMB = (uploaded / (1024*1024)).toFixed(1);
+            const totalMB = (file.size / (1024*1024)).toFixed(1);
+            setUploadProgress(pct, 'Uploading PDF…', uploadedMB + ' MB of ' + totalMB + ' MB · part ' + (i+1) + ' of ' + totalParts);
+          }
+          // Complete
+          setUploadProgress(99, 'Finalising upload…', '');
+          const completeRes = await accountFetch('/api/teacher/b2-multipart-complete', {
+            method: 'POST',
+            body: JSON.stringify({ key, uploadId, parts })
+          });
+          if (!completeRes.ok) throw new Error('Could not finalise upload.');
+          return key;
+        } catch (err) {
+          // Abort multipart on failure
+          accountFetch('/api/teacher/b2-multipart-abort', {
+            method: 'POST',
+            body: JSON.stringify({ key, uploadId })
+          }).catch(() => {});
+          throw err;
+        }
+      }
+
+      if (selectedFile.size > DIRECT_THRESHOLD) {
+        const examId = 'exam-' + Math.random().toString(36).slice(2,10) + '-' + Date.now();
+        setUploadProgress(0, 'Starting upload…', (fileMB.toFixed(1)) + ' MB');
+        b2Key = await multipartUpload(selectedFile, examId);
+        setUploadProgress(100, 'Upload complete!', '');
+        await new Promise(r => setTimeout(r, 300));
+        hideUploadProgress();
       } else {
         pdfDataUrl = await readFileAsDataUrl(selectedFile, controller.signal);
       }
