@@ -1,6 +1,5 @@
-const CACHE = 'acadex-v-20260920-5';
+const CACHE = 'acadex-v-20260921-6';
 const STATIC_ASSETS = [
-  '/',
   '/install',
   '/manifest.json',
   '/icons/acadex-icon.svg',
@@ -46,10 +45,9 @@ self.addEventListener('fetch', event => {
   // Never intercept API calls — always go straight to network
   if (url.pathname.startsWith('/api/')) return;
 
-  // Navigation to / or /install — always serve from cache immediately.
-  // pwa-loader.html handles the health check client-side before redirecting
-  // to the real app, so Render's cold start is never exposed here.
-  if (url.pathname === '/' || url.pathname === '/install') {
+  // Keep the /install entry page available offline, but let the server
+  // handle / so its 302 redirect to /install is preserved.
+  if (url.pathname === '/install') {
     event.respondWith(
       caches.match(event.request).then(cached => {
         if (cached) return cached;
