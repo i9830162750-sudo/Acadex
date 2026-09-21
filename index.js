@@ -1404,11 +1404,11 @@ async function renderPDF(pdfUrl){
   // Keep the page counter outside the transformed reader rail. The rail uses
   // transform:translateY(-50%), which would otherwise make a position:fixed
   // counter position relative to the rail instead of the viewport.
-  const count=document.createElement('div');
-  count.className='pdf-bottom-page-count';
-  count.id='pdfBottomPageCount';
-  count.textContent='1 / 1';
-  $('app').appendChild(count);
+  const pageCounter=document.createElement('div');
+  pageCounter.className='pdf-bottom-page-count';
+  pageCounter.id='pdfBottomPageCount';
+  pageCounter.textContent='1 / 1';
+  $('app').appendChild(pageCounter);
   const rail=document.createElement('div'); rail.className='pdf-reader-rail';
   rail.innerHTML='<div class="pdf-scroll-track"><div class="pdf-scroll-thumb" id="pdfScrollThumb"></div></div><div class="pdf-zoom-controls"><button class="pdf-zoom-btn" id="pdfZoomIn" type="button" aria-label="Zoom in">+</button><button class="pdf-zoom-btn" id="pdfZoomOut" type="button" aria-label="Zoom out">−</button><button class="pdf-zoom-btn" id="pdfZoomReset" type="button" aria-label="Reset zoom">↺</button></div>';
   $('app').appendChild(rail);
