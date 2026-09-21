@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const zlib = require('zlib');
-const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, PutBucketCorsCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 require('dotenv').config( {
   path: '.env.local'
@@ -399,6 +399,21 @@ async function initDatabase(){
   `);
   await migrateExamContentToB2();
   console.log('Neon database ready.');
+  // Set CORS on B2 bucket so browsers can PUT directly
+  if(b2Configured){
+    b2.send(new PutBucketCorsCommand({
+      Bucket: process.env.B2_BUCKET,
+      CORSConfiguration: {
+        CORSRules: [{
+          AllowedOrigins: [process.env.PUBLIC_BASE_URL || '*'],
+          AllowedMethods: ['PUT', 'GET', 'HEAD'],
+          AllowedHeaders: ['*'],
+          ExposeHeaders: ['ETag'],
+          MaxAgeSeconds: 3600
+        }]
+      }
+    })).then(()=>console.log('B2 CORS configured.')).catch(e=>console.warn('B2 CORS setup failed:',e.message));
+  }
 }
 
 async function migrateExamContentToB2(){
