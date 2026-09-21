@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const zlib = require('zlib');
 const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 require('dotenv').config( {
   path: '.env.local'
 });
@@ -819,7 +820,7 @@ app.post('/exam/create', async(req, res) => {
     if(!studentPassword || typeof studentPassword !== 'string') return res.status(400).json({error:'studentPassword is required'});
     if(typeof durationMs !== 'number' || durationMs<=0) return res.status(400).json({error:'durationMs must be a positive number'});
     if(!['pdf', 'template'].includes(type)) return res.status(400).json({error:'type must be pdf or template'});
-    if(type === 'pdf' && (!pdfDataUrl || typeof pdfDataUrl !== 'string' || !pdfDataUrl.startsWith('data:application/pdf'))) return res.status(400).json({error:'pdfDataUrl must be a base64 PDF data URL'});
+    if(type === 'pdf' && !pdfDataUrl && !req.body?.b2Key) return res.status(400).json({error:'pdfDataUrl or b2Key required for PDF exams'});
     if(type === 'template'){
       if(!Array.isArray(questions)||!questions.length) return res.status(400).json({error:'template exams require at least one question'});
       for(const q of questions){
@@ -835,9 +836,18 @@ app.post('/exam/create', async(req, res) => {
       safeFolderId=String(folderId);
     }
     const examId='exam_'+crypto.randomBytes(12).toString('hex');
-    const contentObjectKey=type==='pdf'
-      ? await uploadPdfToB2(examId,pdfDataUrl)
-      : await uploadTemplateToB2(examId,questions);
+    let contentObjectKey;
+    if(type==='pdf'){
+      if(req.body?.b2Key){
+        // PDF already uploaded directly to B2 by the browser — just use the key
+        contentObjectKey=req.body.b2Key;
+      } else {
+        // Fallback: small PDFs sent as base64 (legacy / small files)
+        contentObjectKey=await uploadPdfToB2(examId,pdfDataUrl);
+      }
+    } else {
+      contentObjectKey=await uploadTemplateToB2(examId,questions);
+    }
     await pool.query(`INSERT INTO exams(id,title,type,pdf_data_url,pdf_object_key,content_object_key,questions_json,student_password,duration_ms,created_at,owner_user_id,folder_id,allow_retake,max_attempts) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,[examId,title,type,null,null,contentObjectKey,null,studentPassword,durationMs,Date.now(),user.id,safeFolderId,safeAllowRetake,safeMaxAttempts]);
     const baseUrl=process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
     res.json({examId,url:`${baseUrl}/exam/${examId}`});
