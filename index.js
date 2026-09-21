@@ -438,10 +438,8 @@ async function migrateExamContentToB2(){
   }
   if(migrated)console.log('Migrated '+migrated+' exam content object'+(migrated===1?'':'s')+' from Neon to Backblaze B2.');
 }
-async function getExam(id){
-  const { rows } = await pool.query(`SELECT id,title,type,pdf_data_url,pdf_object_key,content_object_key,questions_json,student_password,duration_ms,created_at,owner_user_id FROM exams WHERE id=$1`,[id]);
-  const exam=rows[0]||null;
-  if(!exam)return null;
+async function hydrateExamContent(exam){
+  if(!exam)return exam;
   if(exam.content_object_key){
     if(exam.type==='pdf')exam.pdf_data_url=await getPdfDataUrlFromB2(exam.content_object_key);
     else exam.questions_json=await getTemplateFromB2(exam.content_object_key);
@@ -450,6 +448,13 @@ async function getExam(id){
   }else if(exam.pdf_data_url){
     exam.pdf_data_url=decompressPdfDataUrl(exam.pdf_data_url);
   }
+  return exam;
+}
+async function getExam(id, options={}){
+  const { rows } = await pool.query(`SELECT id,title,type,pdf_data_url,pdf_object_key,content_object_key,questions_json,student_password,duration_ms,created_at,owner_user_id FROM exams WHERE id=$1`,[id]);
+  const exam=rows[0]||null;
+  if(!exam)return null;
+  if(options.loadContent !== false) await hydrateExamContent(exam);
   return exam;
 }
 function parseQuestions(exam){
@@ -920,15 +925,78 @@ app.post('/exam/create', async(req, res) => {
 
 app.get('/api/exam/:id', async(req, res) => {
   try{
-    const exam=await getExam(req.params.id); if(!exam) return res.status(404).json({error:'Exam not found'});
-    const data=publicExam(exam); delete data.pdfDataUrl; delete data.questions; res.json(data);
-  }catch(error){console.error(error);res.status(500).json({error:'Failed to load exam'});}
+    const exam=await getExam(req.params.id,{loadContent:false});
+    if(!exam) return res.status(404).json({error:'Exam not found'});
+    const data=publicExam(exam);
+    delete data.pdfDataUrl;
+    delete data.questions;
+    res.json(data);
+  }catch(error){console.error('Load exam metadata error:',error);res.status(500).json({error:'Failed to load exam'});}
+});
+
+app.get('/api/exam/:id/pdf', async(req,res) => {
+  try{
+    const authUser=await getAuthUser(req);
+    if(!authUser || authUser.role!=='student') return res.status(401).json({error:'Student account login is required.'});
+
+    const sessionToken=String(req.headers['x-exam-session']||'').trim();
+    if(!sessionToken) return res.status(401).json({error:'Exam session is required.'});
+
+    const {rows}=await pool.query(
+      `SELECT token,student_user_id,finished_at,end_at FROM exam_sessions WHERE token=$1 AND exam_id=$2`,
+      [sessionToken,req.params.id]
+    );
+    const examSession=rows[0];
+    if(!examSession) return res.status(403).json({error:'Invalid exam session.'});
+    if(examSession.student_user_id && examSession.student_user_id!==authUser.id) return res.status(403).json({error:'This exam session belongs to another student account.'});
+    if(examSession.finished_at || Date.now()>=Number(examSession.end_at)) return res.status(410).json({error:'This exam attempt is finished.'});
+
+    const exam=await getExam(req.params.id,{loadContent:false});
+    if(!exam) return res.status(404).json({error:'Exam not found'});
+    if(exam.type!=='pdf') return res.status(400).json({error:'This exam is not a PDF exam.'});
+
+    const key=exam.content_object_key||exam.pdf_object_key;
+    if(key && b2){
+      const range=typeof req.headers.range==='string' ? req.headers.range : undefined;
+      const out=await b2.send(new GetObjectCommand({
+        Bucket:process.env.B2_BUCKET,
+        Key:key,
+        ...(range ? {Range:range} : {})
+      }));
+      res.status(out.ContentRange ? 206 : 200);
+      res.setHeader('Content-Type','application/pdf');
+      res.setHeader('Accept-Ranges','bytes');
+      if(out.ContentLength!==undefined) res.setHeader('Content-Length',String(out.ContentLength));
+      if(out.ContentRange) res.setHeader('Content-Range',out.ContentRange);
+      res.setHeader('Cache-Control','private, max-age=300');
+      if(out.ETag) res.setHeader('ETag',out.ETag);
+      if(out.Body?.pipe) return out.Body.pipe(res);
+      const bytes=await out.Body.transformToByteArray();
+      return res.end(Buffer.from(bytes));
+    }
+
+    if(exam.pdf_data_url){
+      const comma=exam.pdf_data_url.indexOf(',');
+      if(comma<0) return res.status(500).json({error:'Stored PDF is invalid.'});
+      const buf=Buffer.from(exam.pdf_data_url.slice(comma+1),'base64');
+      res.setHeader('Content-Type','application/pdf');
+      res.setHeader('Accept-Ranges','bytes');
+      res.setHeader('Content-Length',String(buf.length));
+      return res.end(buf);
+    }
+    return res.status(404).json({error:'PDF content not found.'});
+  }catch(error){
+    console.error('PDF stream error:',error);
+    if(!res.headersSent) res.status(500).json({error:'Could not load PDF.'});
+    else res.destroy(error);
+  }
 });
 
 app.post('/api/exam/:id/session', async(req, res) => {
   try{
-    const exam=await getExam(req.params.id);
+    const exam=await getExam(req.params.id,{loadContent:false});
     if(!exam) return res.status(404).json({error:'Exam not found'});
+    if(exam.type==='template') await hydrateExamContent(exam);
 
     const body=req.body||{};
     const authUser=await getAuthUser(req);
@@ -972,7 +1040,8 @@ app.post('/api/exam/:id/session', async(req, res) => {
           deviceId:existing.device_id,
           startedAt:Number(existing.started_at),
           endAt:Number(existing.end_at),
-          ...publicExam(exam)
+          ...publicExam(exam),
+          ...(exam.type==='pdf' ? {pdfUrl:'/api/exam/'+encodeURIComponent(exam.id)+'/pdf'} : {})
         });
       }
     }
@@ -1017,7 +1086,8 @@ app.post('/api/exam/:id/session', async(req, res) => {
         deviceId:active.device_id,
         startedAt:Number(active.started_at),
         endAt:Number(active.end_at),
-        ...publicExam(exam)
+        ...publicExam(exam),
+        ...(exam.type==='pdf' ? {pdfUrl:'/api/exam/'+encodeURIComponent(exam.id)+'/pdf'} : {})
       });
     }
 
@@ -1038,7 +1108,8 @@ app.post('/api/exam/:id/session', async(req, res) => {
       deviceId,
       startedAt,
       endAt,
-      ...publicExam(exam)
+      ...publicExam(exam),
+      ...(exam.type==='pdf' ? {pdfUrl:'/api/exam/'+encodeURIComponent(exam.id)+'/pdf'} : {})
     });
   }catch(error){
     console.error('Start exam session error:',error);
@@ -1175,7 +1246,7 @@ app.get('/result/:publicToken', async(req, res) => {
 });
 
 app.get('/exam/:id', async(req, res) => {
-  const exam=await getExam(req.params.id); if(!exam) return res.status(404).send('Exam not found');
+  const exam=await getExam(req.params.id,{loadContent:false}); if(!exam) return res.status(404).send('Exam not found');
   const safeId=JSON.stringify(exam.id), safeTitle=JSON.stringify(exam.title);
   res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(exam.title)}</title>
 <style>
@@ -1327,14 +1398,25 @@ function renderTemplate(){
 async function submitExam(auto){if(!session)return;clearInterval(timerId);const r=await fetch(API+'/finish', {method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+studentAuthToken}, body:JSON.stringify({sessionToken:session.sessionToken, answers:session.answers||{}})});const d=await r.json();if(!r.ok){if(!auto)alert(d.error||'Could not submit exam');startTimer();return false}session.finishedAt=d.submittedAt||Date.now();await save({...session, examId:EXAM_ID, finishedAt:session.finishedAt, submissionId:d.submissionId, answers:session.answers||{}});if(examData?.type==='pdf'){ $('pdfSubmitBtn').classList.add('hidden'); $('timer').style.display='none'; $('paper').innerHTML='<div class="review-head"><div style="font-size:24px;font-weight:800">Exam Submitted</div><p>Your PDF exam has been submitted and this attempt is now closed.</p></div>'; return true;}showReview(d);return true}
 function showReview(d){$('timer').style.display='none';let html='<div class="review-head"><div style="font-size:24px;font-weight:800">Exam Complete</div><div class="score">'+d.score+' / '+d.total+'</div><div class="pct">'+d.percentage+'%</div><p>This attempt is now closed. You cannot retake this exam.</p></div>';d.results.forEach(r => {const cls=r.correct?'correct':r.yourAnswer === 'Unanswered'?'unanswered':'wrong';const status=r.correct?'Correct ✓':r.yourAnswer === 'Unanswered'?'Unanswered':'Wrong ✗';html+='<div class="review-item"><div class="status '+cls+'">'+status+' — Question '+r.questionNumber+'</div><div><b>'+esc(r.question)+'</b></div><div class="review-answer"><span class="review-label">Your answer:</span> '+esc(r.yourAnswer)+'</div><div class="review-answer"><span class="review-label">Correct answer:</span> '+esc(r.correctAnswer)+'</div></div>'});$('paper').innerHTML=html}
 function startTimer(){clearInterval(timerId);timerId=setInterval(async() => {const left=Number(session.endAt)-Date.now();$('timer').textContent=fmt(left);if(left<=0){clearInterval(timerId);await submitExam(true)}}, 250);$('timer').textContent=fmt(Number(session.endAt)-Date.now())}
-async function showExam(d){examData=d;$('portal').style.display='none';$('app').style.display='block';$('app').classList.toggle('pdf-mode',d.type==='pdf');$('app').classList.remove('pdf-reading');document.querySelector('.pdf-reader-rail')?.remove();$('examTitle').textContent=d.title||EXAM_TITLE;$('pdfSubmitBtn').classList.toggle('hidden',d.type!=='pdf');if(d.type==='pdf'){$('pdfSubmitBtn').onclick=()=>submitExam(false);setupPdfReadingMode()}if(d.type === 'template')renderTemplate();else await renderPDF(d.pdfDataUrl);startTimer()}
-async function renderPDF(dataUrl){
+async function showExam(d){examData=d;$('portal').style.display='none';$('app').style.display='block';$('app').classList.toggle('pdf-mode',d.type==='pdf');$('app').classList.remove('pdf-reading');document.querySelector('.pdf-reader-rail')?.remove();$('examTitle').textContent=d.title||EXAM_TITLE;$('pdfSubmitBtn').classList.toggle('hidden',d.type!=='pdf');if(d.type==='pdf'){$('pdfSubmitBtn').onclick=()=>submitExam(false);setupPdfReadingMode()}if(d.type === 'template')renderTemplate();else await renderPDF(d.pdfUrl);startTimer()}
+async function renderPDF(pdfUrl){
   const paper=$('paper'); paper.innerHTML='';
   const rail=document.createElement('div'); rail.className='pdf-reader-rail';
   rail.innerHTML='<div class="pdf-bottom-page-count" id="pdfBottomPageCount">1 / 1</div><div class="pdf-scroll-track"><div class="pdf-scroll-thumb" id="pdfScrollThumb"></div></div><div class="pdf-zoom-controls"><button class="pdf-zoom-btn" id="pdfZoomIn" type="button" aria-label="Zoom in">+</button><button class="pdf-zoom-btn" id="pdfZoomOut" type="button" aria-label="Zoom out">−</button><button class="pdf-zoom-btn" id="pdfZoomReset" type="button" aria-label="Reset zoom">↺</button></div>';
   $('app').appendChild(rail);
 
-  const pdf=await pdfjsLib.getDocument({data:atob(dataUrl.split(',')[1])}).promise;
+  if(!pdfUrl) throw new Error('PDF stream URL was not provided by the server.');
+  const pdf=await pdfjsLib.getDocument({
+    url:pdfUrl,
+    httpHeaders:{
+      Authorization:'Bearer '+studentAuthToken,
+      'X-Exam-Session':session.sessionToken
+    },
+    rangeChunkSize:1024*1024,
+    disableRange:false,
+    disableStream:false,
+    disableAutoFetch:false
+  }).promise;
   const renderScale=2.25;
   let zoomScale=1.35;
   const count=$('pdfBottomPageCount'), thumb=$('pdfScrollThumb');
