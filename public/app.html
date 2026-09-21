@@ -1562,21 +1562,21 @@ body.student-role .student-only-nav{display:flex!important;}
             <br>
             <span class="retry-link" id="retryLink">Try again</span>
           </div>
-<div id="uploadProgressWrap" style="display:none;margin:16px 0 0;padding:16px;background:var(--bg-sunken);border-radius:12px;border:1px solid var(--line)">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-    <span id="uploadProgressLabel" style="font:600 .84rem Inter,sans-serif;color:var(--ink-soft)">Uploading…</span>
-    <span id="uploadProgressPct" style="font:700 .84rem Inter,sans-serif;color:var(--accent)">0%</span>
-  </div>
-  <div style="height:6px;border-radius:4px;background:var(--bg-elev);overflow:hidden">
-    <div id="uploadProgressBar" style="height:100%;border-radius:4px;background:var(--accent);width:0%;transition:width .25s ease"></div>
-  </div>
-  <div id="uploadProgressSub" style="margin-top:6px;font-size:.74rem;color:var(--ink-faint)"></div>
-</div>
         </section>
 
       </div>
     </div>
 
+    <div id="uploadProgressWrap" style="display:none;padding:10px 20px 0;background:var(--bg);border-top:1px solid var(--line)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+        <span id="uploadProgressLabel" style="font:600 .82rem Inter,sans-serif;color:var(--ink-soft)">Uploading…</span>
+        <span id="uploadProgressPct" style="font:700 .82rem Inter,sans-serif;color:var(--accent)">0%</span>
+      </div>
+      <div style="height:5px;border-radius:3px;background:var(--bg-sunken);overflow:hidden;margin-bottom:4px">
+        <div id="uploadProgressBar" style="height:100%;border-radius:3px;background:var(--accent);width:0%;transition:width .25s ease"></div>
+      </div>
+      <div id="uploadProgressSub" style="font-size:.72rem;color:var(--ink-faint);padding-bottom:8px"></div>
+    </div>
     <div class="action-bar">
       <button class="btn btn-ghost" id="navPrevBtn">← Back</button>
       <button class="btn" id="navNextBtn">Continue →</button>
