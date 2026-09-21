@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const zlib = require('zlib');
-const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, PutBucketCorsCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, PutBucketCorsCommand, CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 require('dotenv').config( {
   path: '.env.local'
@@ -834,6 +834,44 @@ app.post('/api/teacher/b2-presign', async(req,res)=>{ try{
   const url=await getSignedUrl(b2,cmd,{expiresIn:3600});
   res.json({uploadUrl:url,key});
 }catch(err){console.error(err);res.status(500).json({error:'Could not generate upload URL.'});} });
+
+// Multipart upload support - browser uploads large PDFs directly to B2 in chunks
+app.post('/api/teacher/b2-multipart-start', async(req,res)=>{ try{
+  const u=await requireRole(req,res,'teacher'); if(!u)return;
+  if(!b2Configured)return res.status(503).json({error:'B2 not configured.'});
+  const {examId,contentType='application/pdf'}=req.body||{};
+  if(!examId)return res.status(400).json({error:'examId required.'});
+  const key='exams/'+examId+'/pdf-'+Date.now()+'.pdf';
+  const out=await b2.send(new CreateMultipartUploadCommand({Bucket:process.env.B2_BUCKET,Key:key,ContentType:contentType}));
+  res.json({uploadId:out.UploadId,key});
+}catch(err){console.error(err);res.status(500).json({error:'Could not start multipart upload.'});} });
+
+app.post('/api/teacher/b2-multipart-part', async(req,res)=>{ try{
+  const u=await requireRole(req,res,'teacher'); if(!u)return;
+  if(!b2Configured)return res.status(503).json({error:'B2 not configured.'});
+  const {key,uploadId,partNumber}=req.body||{};
+  if(!key||!uploadId||!partNumber)return res.status(400).json({error:'key, uploadId, partNumber required.'});
+  const cmd=new UploadPartCommand({Bucket:process.env.B2_BUCKET,Key:key,UploadId:uploadId,PartNumber:Number(partNumber)});
+  const url=await getSignedUrl(b2,cmd,{expiresIn:3600});
+  res.json({url});
+}catch(err){console.error(err);res.status(500).json({error:'Could not get part URL.'});} });
+
+app.post('/api/teacher/b2-multipart-complete', async(req,res)=>{ try{
+  const u=await requireRole(req,res,'teacher'); if(!u)return;
+  if(!b2Configured)return res.status(503).json({error:'B2 not configured.'});
+  const {key,uploadId,parts}=req.body||{};
+  if(!key||!uploadId||!Array.isArray(parts))return res.status(400).json({error:'key, uploadId, parts required.'});
+  await b2.send(new CompleteMultipartUploadCommand({Bucket:process.env.B2_BUCKET,Key:key,UploadId:uploadId,MultipartUpload:{Parts:parts}}));
+  res.json({ok:true,key});
+}catch(err){console.error(err);res.status(500).json({error:'Could not complete upload.'});} });
+
+app.post('/api/teacher/b2-multipart-abort', async(req,res)=>{ try{
+  const u=await requireRole(req,res,'teacher'); if(!u)return;
+  if(!b2Configured)return res.status(503).json({error:'B2 not configured.'});
+  const {key,uploadId}=req.body||{};
+  if(key&&uploadId)await b2.send(new AbortMultipartUploadCommand({Bucket:process.env.B2_BUCKET,Key:key,UploadId:uploadId}));
+  res.json({ok:true});
+}catch(err){res.status(500).json({error:'Could not abort.'});} });
 
 app.post('/exam/create', async(req, res) => {
   try{
