@@ -2055,9 +2055,20 @@ $('examStep').addEventListener('submit',e=>{e.preventDefault();enter()});
       if(r.ok&&d.user&&d.user.role==='student'){
         await saveAccount(d.user,studentAuthToken);
         $('studentWelcome').textContent='Signed in as '+(d.user.displayName||d.user.email)+(d.user.studentId?' · Student ID '+d.user.studentId:'');
-      }else studentAuthToken='';
+        $('accountStep').classList.add('hidden');
+        $('accountTabs').classList.add('hidden');
+        $('examStep').classList.remove('hidden');
+        // A refresh during an active exam resumes it automatically. The server
+        // keeps the original endAt, so the timer cannot be reset by reloading.
+        const resumed=await tryAutoResume();
+        if(!resumed)$('pwd').focus();
+      }else{
+        studentAuthToken='';
+      }
     }
-  }catch(_){}
+  }catch(e){
+    console.error('[Acadex] Saved student session restore failed:',e);
+  }
   $('studentEmail').focus();
 })();</script></body></html>`);
 });
